@@ -139,6 +139,73 @@ export interface Template {
 
 export type PageKey = 'dashboard' | 'pattern' | 'thread' | 'winding' | 'archive' | 'templates';
 
+export interface Version {
+  id: string;
+  workId: string;
+  versionNumber: number;
+  name: string;
+  createdAt: number;
+  author: string;
+  note: string;
+  patternSnapshot: PatternScheme;
+  formulaSnapshot: ThreadFormula;
+  windingSnapshot: WindingConfig;
+}
+
+export interface FieldDiff<T> {
+  field: string;
+  oldValue: T;
+  newValue: T;
+  changed: boolean;
+}
+
+export interface VersionDiff {
+  versionId: string;
+  compareToId: string;
+  pattern: {
+    zoneCount: FieldDiff<number>;
+    pathLayerCount: FieldDiff<number>;
+    zones: Array<{ zoneName: string; changes: FieldDiff<any>[] }>;
+  };
+  formula: FieldDiff<any>[];
+  winding: {
+    totalHeight: FieldDiff<number>;
+    stackingLayers: FieldDiff<number>;
+    dryingHours: FieldDiff<number>;
+    densityChanges: Array<{ zoneName: string; density: FieldDiff<number> }>;
+  };
+}
+
+export interface CompareFormula extends ThreadFormula {
+  compareId: string;
+  label: string;
+  enabled: boolean;
+}
+
+export interface ConstructionItem {
+  id: string;
+  zoneId: string;
+  zoneName: string;
+  zoneColor: string;
+  sequence: number;
+  layerIndex: number;
+  threadLength: number;
+  threadDiameter: number;
+  windingDirection: 'cw' | 'ccw';
+  threadCount: number;
+  waitTimeMinutes: number;
+  isGoldNode: boolean;
+  notes: string;
+  status: 'pending' | 'in-progress' | 'done';
+}
+
+export interface ConstructionPlan {
+  items: ConstructionItem[];
+  totalThreadLength: number;
+  totalEstimatedHours: number;
+  totalGoldNodes: number;
+}
+
 export interface AppState {
   currentPage: PageKey;
   currentWorkId: string | null;
@@ -151,4 +218,8 @@ export interface AppState {
   selectedTemplateId: string | null;
   selectedWorkId: string | null;
   showTemplateDetail: boolean;
+  versions: Version[];
+  compareFormulas: CompareFormula[];
+  selectedCompareVersionId: string | null;
+  constructionPlan: ConstructionPlan | null;
 }

@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Upload, Layers, PenLine, Grid3X3, Download, Plus, Trash2, ChevronDown, Eye, EyeOff, Move, ArrowRight, Palette, Sparkles } from 'lucide-react';
+import { Upload, Layers, PenLine, Grid3X3, Download, Plus, Trash2, ChevronDown, Eye, EyeOff, Move, ArrowRight, Palette, Sparkles, RotateCw, RotateCcw, ChevronsUp, ChevronsDown } from 'lucide-react';
 import { useQxdStore } from '../../store/useQxdStore';
 import { clsx } from 'clsx';
 
 export default function PatternPage() {
-  const { pattern, updatePattern, addZone, updateZone, removeZone, recomputeWinding, setPage, formula, saveCurrentToWorks, processVectorize, processAutoPartition } = useQxdStore();
+  const { pattern, updatePattern, addZone, updateZone, removeZone, recomputeWinding, setPage, formula, saveCurrentToWorks, processVectorize, processAutoPartition, updatePathLayer } = useQxdStore();
   const [tool, setTool] = useState<'select' | 'zone' | 'path'>('select');
   const [activeZoneId, setActiveZoneId] = useState(pattern.zones[0]?.id ?? null);
   const [showGrid, setShowGrid] = useState(true);
@@ -235,17 +235,58 @@ export default function PatternPage() {
             {pattern.pathLayers.map((pl, i) => {
               const z = pattern.zones.find(zz => zz.id === pl.zoneId);
               return (
-                <div key={pl.id} className="p-2.5 rounded-lg bg-rice-50 border border-gold-100">
-                  <div className="flex items-center gap-2 mb-1.5">
+                <div key={pl.id} className="p-2.5 rounded-lg bg-rice-50 border border-gold-100 group">
+                  <div className="flex items-center gap-2 mb-2">
                     <span className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold text-white" style={{ background: z?.color }}>{i + 1}</span>
                     <span className="font-song text-sm font-medium text-ink-700 flex-1 truncate">{z?.name || '路径层'}</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded border border-gold-200 bg-gold-50 text-gold-700">
+                    <button
+                      onClick={() => updatePathLayer(pl.id, { windingDirection: pl.windingDirection === 'cw' ? 'ccw' : 'cw' })}
+                      className={clsx('px-2 py-0.5 rounded border text-[10px] flex items-center gap-1 transition-all',
+                        pl.windingDirection === 'cw'
+                          ? 'border-gold-300 bg-gold-50 text-gold-700 hover:bg-gold-100'
+                          : 'border-cinnabar-300 bg-cinnabar-50 text-cinnabar-700 hover:bg-cinnabar-100')}>
+                      {pl.windingDirection === 'cw' ? <RotateCw className="w-3 h-3" /> : <RotateCcw className="w-3 h-3" />}
                       {pl.windingDirection === 'cw' ? '顺时针' : '逆时针'}
-                    </span>
+                    </button>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-[11px]">
-                    <div className="text-ink-500">盘绕匝数 <span className="text-ink-700 font-medium">{pl.threadCount}</span></div>
-                    <div className="text-ink-500">Z轴顺序 <span className="text-ink-700 font-medium">{pl.order}</span></div>
+                  <div className="grid grid-cols-2 gap-2 text-[11px] mb-2">
+                    <div>
+                      <p className="text-ink-400 mb-0.5">盘绕匝数</p>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => updatePathLayer(pl.id, { threadCount: Math.max(1, pl.threadCount - 1) })}
+                          className="w-6 h-6 rounded bg-ink-100 text-ink-600 hover:bg-ink-200 flex items-center justify-center">−</button>
+                        <input
+                          type="number" min="1" max="20" value={pl.threadCount}
+                          onChange={e => updatePathLayer(pl.id, { threadCount: Math.max(1, Math.min(20, parseInt(e.target.value) || 1)) })}
+                          className="flex-1 h-6 rounded border border-ink-200 bg-white text-center text-ink-700 outline-none focus:border-gold-400" />
+                        <button
+                          onClick={() => updatePathLayer(pl.id, { threadCount: Math.min(20, pl.threadCount + 1) })}
+                          className="w-6 h-6 rounded bg-ink-100 text-ink-600 hover:bg-ink-200 flex items-center justify-center">+</button>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-ink-400 mb-0.5">Z轴顺序</p>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => updatePathLayer(pl.id, { order: Math.max(1, pl.order - 1) })}
+                          className="w-6 h-6 rounded bg-ink-100 text-ink-600 hover:bg-ink-200 flex items-center justify-center">
+                          <ChevronsDown className="w-3 h-3" />
+                        </button>
+                        <input
+                          type="number" min="1" max="10" value={pl.order}
+                          onChange={e => updatePathLayer(pl.id, { order: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) })}
+                          className="flex-1 h-6 rounded border border-ink-200 bg-white text-center text-ink-700 outline-none focus:border-gold-400" />
+                        <button
+                          onClick={() => updatePathLayer(pl.id, { order: Math.min(10, pl.order + 1) })}
+                          className="w-6 h-6 rounded bg-ink-100 text-ink-600 hover:bg-ink-200 flex items-center justify-center">
+                          <ChevronsUp className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-ink-400">
+                    <span>路径 <span className="text-ink-500 font-mono">{pl.d.slice(0, 20)}...</span></span>
                   </div>
                 </div>
               );

@@ -1,11 +1,22 @@
-import { useMemo } from 'react';
-import { Layers, Thermometer, Droplets, Sun, CloudRain, Gauge, ArrowUp, Box, Clock, AlertTriangle, CheckCircle, Sparkles, ChevronRight, FileArchive } from 'lucide-react';
+import { useMemo, useState, useEffect } from 'react';
+import {
+  Layers, Thermometer, Droplets, Sun, CloudRain, Gauge, ArrowUp, Box, Clock, AlertTriangle, CheckCircle, Sparkles, ChevronRight, FileArchive, ListTodo, Play, Pause, RotateCcw, Save, ChevronDown, ChevronUp,
+} from 'lucide-react';
 import { useQxdStore } from '../../store/useQxdStore';
 import { densityColor, calcFragilityRisk } from '../../utils/calculations';
 import { clsx } from 'clsx';
+import type { ConstructionItem } from '../../types';
 
 export default function WindingPage() {
-  const { pattern, formula, winding, updateWinding, recomputeWinding, setPage, saveCurrentToWorks } = useQxdStore();
+  const {
+    pattern, formula, winding, updateWinding, recomputeWinding, setPage, saveCurrentToWorks,
+    constructionPlan, generateConstructionPlan, updateConstructionItem, saveConstructionPlanToWork,
+  } = useQxdStore();
+  const [showConstruction, setShowConstruction] = useState(true);
+
+  useEffect(() => {
+    generateConstructionPlan();
+  }, [pattern.id]);
   const elapsedHours = 2.5;
   const fragility = calcFragilityRisk(winding, elapsedHours);
   const fragColor = fragility.risk === 'low' ? '#2ECC71' : fragility.risk === 'medium' ? '#FF9F43' : '#EE2E2E';
@@ -345,11 +356,63 @@ export default function WindingPage() {
 
       <aside className="col-span-12 lg:col-span-3 space-y-4 overflow-y-auto scrollbar-thin pr-1">
         <div className="qxd-panel p-4 huiwen-border">
+          <div className="qxd-title-bar mb-3 cursor-pointer" onClick={() => setShowConstruction(!showConstruction)}>
+            <div className="title-icon"><ListTodo className="w-4 h-4" /></div>
+            <h2>分区施工清单</h2>
+            <span className="ml-auto text-xs text-ink-400 mr-2">
+              {constructionPlan?.items.length || 0} 道工序
+            </span>
+            {showConstruction ? <ChevronUp className="w-4 h-4 text-ink-400" /> : <ChevronDown className="w-4 h-4 text-ink-400" />}
+          </div>
+          {showConstruction && constructionPlan && (
+            <>
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                <div className="p-2 rounded-lg bg-cinnabar-50 border border-cinnabar-100 text-center">
+                  <div className="text-[9px] text-ink-400">用线总长</div>
+                  <div className="font-song font-bold text-cinnabar-700 text-sm">{constructionPlan.totalThreadLength}m</div>
+                </div>
+                <div className="p-2 rounded-lg bg-gold-50 border border-gold-200 text-center">
+                  <div className="text-[9px] text-ink-400">预计工时</div>
+                  <div className="font-song font-bold text-gold-700 text-sm">{constructionPlan.totalEstimatedHours.toFixed(1)}h</div>
+                </div>
+                <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200 text-center">
+                  <div className="text-[9px] text-ink-400">贴金节点</div>
+                  <div className="font-song font-bold text-emerald-700 text-sm">{constructionPlan.totalGoldNodes}处</div>
+                </div>
+              </div>
+              <div className="space-y-2 max-h-[340px] overflow-y-auto scrollbar-thin pr-1">
+                {constructionPlan.items.map((item, idx) => (
+                  <ConstructionItemRow
+                    key={item.id}
+                    item={item}
+                    onUpdate={updateConstructionItem}
+                  />
+                ))}
+              </div>
+              <div className="mt-3 pt-3 border-t border-gold-100/70 flex gap-2">
+                <button
+                  onClick={() => generateConstructionPlan()}
+                  className="flex-1 qxd-btn-ghost text-xs py-2"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" /> 重新生成
+                </button>
+                <button
+                  onClick={() => { saveConstructionPlanToWork(); setPage('archive'); }}
+                  className="flex-1 qxd-btn-primary text-xs py-2"
+                >
+                  <Save className="w-3.5 h-3.5" /> 存入档案
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="qxd-panel p-4 huiwen-border">
           <div className="qxd-title-bar mb-3">
             <div className="title-icon"><Layers className="w-4 h-4" /></div>
             <h2>堆叠层数明细</h2>
           </div>
-          <div className="space-y-2 max-h-[320px] overflow-y-auto scrollbar-thin pr-1">
+          <div className="space-y-2 max-h-[200px] overflow-y-auto scrollbar-thin pr-1">
             {winding.stackingLayers.map((l, i) => {
               const z = pattern.zones.find(zz => zz.id === l.zoneId);
               return (
@@ -407,6 +470,114 @@ export default function WindingPage() {
           </ul>
         </div>
       </aside>
+    </div>
+  );
+}
+
+function ConstructionItemRow({
+  item, onUpdate,
+}: {
+  item: ConstructionItem;
+  onUpdate: (id: string, patch: Partial<ConstructionItem>) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const statusColors: Record<ConstructionItem['status'], string> = {
+    'pending': 'bg-ink-100 text-ink-500 border-ink-200',
+    'in-progress': 'bg-cinnabar-50 text-cinnabar-700 border-cinnabar-200',
+    'done': 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  };
+  const statusLabels: Record<ConstructionItem['status'], string> = {
+    'pending': '待开始',
+    'in-progress': '进行中',
+    'done': '已完成',
+  };
+
+  return (
+    <div className={clsx(
+      'rounded-lg border-2 transition-all overflow-hidden',
+      item.status === 'done' ? 'border-emerald-200 bg-emerald-50/40'
+        : item.status === 'in-progress' ? 'border-cinnabar-300 bg-cinnabar-50/40'
+        : 'border-gold-100 bg-rice-50/60'
+    )}>
+      <div className="p-2.5 cursor-pointer" onClick={() => setExpanded(!expanded)}>
+        <div className="flex items-center gap-2 mb-1.5">
+          <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0"
+               style={{ background: item.zoneColor }}>
+            {item.sequence}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-song font-semibold text-ink-700 truncate">{item.zoneName}</span>
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/70 text-ink-500 border border-ink-100">
+                第{item.layerIndex}层
+              </span>
+            </div>
+          </div>
+          <span className={clsx(
+            'text-[9px] px-1.5 py-0.5 rounded border font-semibold',
+            statusColors[item.status]
+          )}>
+            {statusLabels[item.status]}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 text-[10px]">
+          <span className="text-ink-500">
+            {item.windingDirection === 'cw' ? '↻ 顺时针' : '↺ 逆时针'} · {item.threadCount}匝
+          </span>
+          <span className="text-cinnabar-700 font-semibold">{item.threadLength}m</span>
+          {item.isGoldNode && (
+            <span className="ml-auto px-1.5 py-0.5 rounded bg-gold-100 text-gold-700 border border-gold-300 font-semibold">
+              ✨ 贴金
+            </span>
+          )}
+        </div>
+      </div>
+      {expanded && (
+        <div className="border-t border-gold-100 p-2.5 bg-white/40 space-y-2">
+          <div className="grid grid-cols-2 gap-2 text-[10px]">
+            <div>
+              <span className="text-ink-400">线径</span>
+              <span className="ml-1 font-semibold text-ink-700">Φ{item.threadDiameter}mm</span>
+            </div>
+            <div>
+              <span className="text-ink-400">半干等待</span>
+              <span className="ml-1 font-semibold text-ink-700">{item.waitTimeMinutes}分钟</span>
+            </div>
+          </div>
+          <p className="text-[10px] text-ink-500 pl-2 border-l-2 border-gold-300">
+            💡 {item.notes}
+          </p>
+          <div className="flex gap-1 pt-1">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onUpdate(item.id, {
+                  status: item.status === 'done' ? 'pending' : item.status === 'pending' ? 'in-progress' : 'done',
+                });
+              }}
+              className={clsx(
+                'flex-1 py-1 rounded text-[9px] font-semibold flex items-center justify-center gap-1 border transition-all',
+                item.status === 'done'
+                  ? 'bg-emerald-500 text-white border-emerald-400'
+                  : 'bg-rice-50 text-ink-500 border-ink-200 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700'
+              )}>
+              <CheckCircle className="w-3 h-3" />
+              {item.status === 'done' ? '已完成' : '标记完成'}
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onUpdate(item.id, {
+                  waitTimeMinutes: Math.max(5, item.waitTimeMinutes + 10),
+                });
+              }}
+              className="px-2 py-1 rounded text-[9px] font-semibold bg-rice-50 text-ink-500 border border-ink-200 hover:bg-gold-50 hover:border-gold-300 hover:text-gold-700"
+            >
+              ⏱ +10分钟
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

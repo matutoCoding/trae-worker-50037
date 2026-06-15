@@ -1,9 +1,13 @@
 import { useState } from 'react';
-import { FileArchive, Search, Filter, AlertTriangle, Clock, Layers, Sparkles, ChevronRight, X, Play, Pause, Download, Share2, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
+import {
+  FileArchive, Search, Filter, AlertTriangle, Clock, Layers, Sparkles, ChevronRight, X, Play, Pause,
+  Download, Share2, Trash2, CheckCircle2, AlertCircle, GitBranch, RotateCcw, Save, GitCompare,
+  ChevronDown, ChevronUp, ArrowUpDown,
+} from 'lucide-react';
 import { useQxdStore } from '../../store/useQxdStore';
 import { formatDateTime, formatDate } from '../../utils/calculations';
 import { clsx } from 'clsx';
-import type { Work } from '../../types';
+import type { Work, VersionDiff } from '../../types';
 
 const statusMap: Record<Work['status'], { label: string; dot: string; cls: string; icon: any }> = {
   draft: { label: '草稿', dot: 'bg-ink-400', cls: 'border-ink-200 bg-ink-50 text-ink-500', icon: Clock },
@@ -13,14 +17,25 @@ const statusMap: Record<Work['status'], { label: string; dot: string; cls: strin
 };
 
 export default function ArchivePage() {
-  const { works, selectedWorkId, selectWork, updateWork, setPage } = useQxdStore();
+  const {
+    works, selectedWorkId, selectWork, updateWork, setPage,
+    versions, saveVersion, getVersionsByWork, restoreVersion, compareTwoVersions,
+    setSelectedCompareVersion, selectedCompareVersionId,
+  } = useQxdStore();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Work['status'] | 'all'>('all');
   const [playing, setPlaying] = useState(false);
+  const [showVersionPanel, setShowVersionPanel] = useState(true);
+  const [versionNote, setVersionNote] = useState('');
+  const [showVersionCompare, setShowVersionCompare] = useState(false);
   const selected = works.find(w => w.id === selectedWorkId);
   const displayPattern = selected?.patternSnapshot;
   const displayFormula = selected?.formulaSnapshot;
   const displayWinding = selected?.windingSnapshot;
+  const workVersions = selectedWorkId ? getVersionsByWork(selectedWorkId) : [];
+  const compareDiff: VersionDiff | null = showVersionCompare && selectedCompareVersionId && workVersions[0]
+    ? compareTwoVersions(selectedCompareVersionId, workVersions[0].id)
+    : null;
 
   const filtered = works.filter(w => (filter === 'all' || w.status === filter) && (w.name.includes(query) || w.notes.includes(query)));
   const progress = (w: Work) => w.steps.length ? Math.round((w.steps.filter(s => s.status === 'done').length / w.steps.length) * 100) : 0;
@@ -361,9 +376,199 @@ export default function ArchivePage() {
                 </div>
               </div>
             )}
+
+            <div className="qxd-panel p-5 huiwen-border">
+              <div className="qxd-title-bar mb-3 cursor-pointer" onClick={() => setShowVersionPanel(!showVersionPanel)}>
+                <div className="title-icon"><GitBranch className="w-4 h-4" /></div>
+                <h2>版本管理 · 历史记录</h2>
+                <span className="ml-auto text-xs text-ink-400 mr-2">{workVersions.length} 个版本</span>
+                {showVersionPanel ? <ChevronUp className="w-4 h-4 text-ink-400" /> : <ChevronDown className="w-4 h-4 text-ink-400" />}
+              </div>
+              {showVersionPanel && (
+                <>
+                  <div className="flex gap-2 mb-4">
+                    <input
+                      value={versionNote}
+                      onChange={e => setVersionNote(e.target.value)}
+                      placeholder="输入版本备注（如：调整砖粉比例至30%）..."
+                      className="flex-1 qxd-input text-sm"
+                    />
+                    <button
+                      onClick={() => {
+                        if (!selectedWorkId) {
+                          alert('请先保存当前方案到档案');
+                          return;
+                        }
+                        saveVersion(versionNote || '保存方案快照');
+                        setVersionNote('');
+                      }}
+                      className="qxd-btn-primary text-sm whitespace-nowrap"
+                    >
+                      <Save className="w-4 h-4" /> 保存当前版本
+                    </button>
+                  </div>
+
+                  {workVersions.length === 0 ? (
+                    <p className="text-sm text-ink-400 py-6 text-center">暂无版本记录，保存方案后可创建版本快照</p>
+                  ) : (
+                    <div className="space-y-2 max-h-[300px] overflow-y-auto scrollbar-thin pr-1">
+                      {workVersions.map((v, i) => {
+                        const isLatest = i === 0;
+                        const isCompareSelected = v.id === selectedCompareVersionId;
+                        return (
+                          <div key={v.id} className={clsx(
+                            'p-3 rounded-xl border transition-all',
+                            isCompareSelected ? 'border-cinnabar-400 bg-cinnabar-50/40' : 'border-gold-100 bg-rice-50/60 hover:border-gold-300'
+                          )}>
+                            <div className="flex items-center justify-between gap-3 mb-1">
+                              <div className="flex items-center gap-2">
+                                <span className={clsx(
+                                  'qxd-badge text-[10px] font-bold',
+                                  isLatest ? 'bg-emerald-500 text-white border-emerald-400' : 'bg-gold-100 text-gold-700 border-gold-300'
+                                )}>
+                                  {v.name.split(' ')[0]} {isLatest && '· 当前'}
+                                </span>
+                                <span className="text-xs text-ink-600 font-song font-semibold">{v.name.split(' ').slice(1).join(' ')}</span>
+                              </div>
+                              <span className="text-[10px] text-ink-400">{formatDateTime(v.createdAt)}</span>
+                            </div>
+                            <p className="text-xs text-ink-500 mb-2">{v.note}</p>
+                            <div className="flex items-center gap-2 text-[10px]">
+                              <span className="text-ink-400">分区 {v.patternSnapshot.zones.length}</span>
+                              <span className="text-ink-400">硬度 {v.formulaSnapshot.hardnessIndex}</span>
+                              <span className="text-ink-400">堆叠 {v.windingSnapshot.totalHeight}mm</span>
+                              <div className="ml-auto flex items-center gap-1">
+                                <button
+                                  onClick={() => {
+                                    if (!isCompareSelected && showVersionCompare) {
+                                      setSelectedCompareVersion(v.id);
+                                    } else if (isLatest) {
+                                      setShowVersionCompare(false);
+                                      setSelectedCompareVersion(null);
+                                    } else {
+                                      setShowVersionCompare(true);
+                                      setSelectedCompareVersion(v.id);
+                                    }
+                                  }}
+                                  className={clsx(
+                                    'px-2 py-1 rounded-md border transition-all',
+                                    isCompareSelected
+                                      ? 'bg-cinnabar-600 text-white border-cinnabar-400'
+                                      : 'border-gold-200 bg-rice-50 text-ink-500 hover:border-gold-400 hover:text-cinnabar-700'
+                                  )}
+                                  title={isCompareSelected ? '取消对比' : '与当前版本对比'}
+                                >
+                                  <GitCompare className="w-3 h-3" />
+                                </button>
+                                {!isLatest && (
+                                  <button
+                                    onClick={() => {
+                                      if (confirm(`确定要恢复到 ${v.name} 吗？当前编辑内容将被覆盖。`)) {
+                                        restoreVersion(v.id);
+                                      }
+                                    }}
+                                    className="px-2 py-1 rounded-md border border-gold-200 bg-rice-50 text-ink-500 hover:border-cinnabar-300 hover:text-cinnabar-700 transition-all"
+                                    title="恢复此版本到编辑区"
+                                  >
+                                    <RotateCcw className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {showVersionCompare && compareDiff && (
+                    <div className="mt-4 pt-4 border-t border-gold-200">
+                      <div className="qxd-title-bar mb-3">
+                        <div className="title-icon !bg-blue-500/10"><ArrowUpDown className="w-3.5 h-3.5 text-blue-600" /></div>
+                        <h2 className="!text-base text-blue-700">版本差异对比</h2>
+                        <button onClick={() => { setShowVersionCompare(false); setSelectedCompareVersion(null); }}
+                          className="ml-auto text-xs text-ink-400 hover:text-warn-danger">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <div className="space-y-3 max-h-[400px] overflow-y-auto scrollbar-thin pr-1">
+                        <div className="p-3 rounded-lg bg-ink-50 border border-ink-100">
+                          <h4 className="text-xs font-song font-semibold text-ink-700 mb-2">纹样分区</h4>
+                          <div className="space-y-1.5 text-[11px]">
+                            <DiffRow label={compareDiff.pattern.zoneCount.field} diff={compareDiff.pattern.zoneCount} />
+                            <DiffRow label={compareDiff.pattern.pathLayerCount.field} diff={compareDiff.pattern.pathLayerCount} />
+                            {compareDiff.pattern.zones.map(zd => (
+                              <div key={zd.zoneName} className="pl-2 border-l-2 border-gold-200">
+                                <span className="text-ink-600 font-semibold">{zd.zoneName}</span>
+                                {zd.changes.map((c, ci) => (
+                                  <div key={ci} className="text-ink-500 ml-2">
+                                    {c.field}: <span className="text-warn-soft">{c.oldValue}</span>
+                                    <ArrowUpDown className="w-3 h-3 inline mx-1 text-ink-300" />
+                                    <span className="text-emerald-600">{c.newValue}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="p-3 rounded-lg bg-ink-50 border border-ink-100">
+                          <h4 className="text-xs font-song font-semibold text-ink-700 mb-2">线料配方</h4>
+                          {compareDiff.formula.length === 0 ? (
+                            <p className="text-[11px] text-ink-400">无变化</p>
+                          ) : (
+                            <div className="space-y-1.5 text-[11px]">
+                              {compareDiff.formula.map(d => <DiffRow key={d.field} label={d.field} diff={d} />)}
+                            </div>
+                          )}
+                        </div>
+                        <div className="p-3 rounded-lg bg-ink-50 border border-ink-100">
+                          <h4 className="text-xs font-song font-semibold text-ink-700 mb-2">盘绕参数</h4>
+                          <div className="space-y-1.5 text-[11px]">
+                            <DiffRow label={compareDiff.winding.totalHeight.field} diff={compareDiff.winding.totalHeight} />
+                            <DiffRow label={compareDiff.winding.stackingLayers.field} diff={compareDiff.winding.stackingLayers} />
+                            <DiffRow label={compareDiff.winding.dryingHours.field} diff={compareDiff.winding.dryingHours} />
+                            {compareDiff.winding.densityChanges.map(dc => (
+                              <div key={dc.zoneName} className="pl-2 border-l-2 border-gold-200">
+                                <span className="text-ink-600 font-semibold">{dc.zoneName}</span>
+                                <div className="text-ink-500 ml-2">
+                                  密度: <span className="text-warn-soft">{dc.density.oldValue}</span>
+                                  <ArrowUpDown className="w-3 h-3 inline mx-1 text-ink-300" />
+                                  <span className="text-emerald-600">{dc.density.newValue}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </>
         )}
       </section>
+    </div>
+  );
+}
+
+function DiffRow({ label, diff }: { label: string; diff: { oldValue: any; newValue: any; changed: boolean } }) {
+  if (!diff.changed) {
+    return (
+      <div className="flex justify-between">
+        <span className="text-ink-400">{label}</span>
+        <span className="text-ink-500">{diff.newValue}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex justify-between">
+      <span className="text-ink-600 font-semibold">{label}</span>
+      <span className="flex items-center gap-1">
+        <span className="text-warn-soft line-through">{diff.oldValue}</span>
+        <ArrowUpDown className="w-3 h-3 text-cinnabar-500" />
+        <span className="text-emerald-600 font-bold">{diff.newValue}</span>
+      </span>
     </div>
   );
 }

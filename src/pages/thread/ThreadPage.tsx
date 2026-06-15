@@ -1,7 +1,11 @@
-import { useEffect } from 'react';
-import { FlaskConical, AlertTriangle, Gauge, Ruler, Clock, ListChecks, ArrowRight, Droplets, Sparkles } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import {
+  FlaskConical, AlertTriangle, Gauge, Ruler, Clock, ListChecks, ArrowRight, Droplets, Sparkles,
+  GitCompare, Plus, X, Check, Eye, EyeOff, RefreshCw, Trash2, ChevronUp, ChevronDown,
+} from 'lucide-react';
 import { useQxdStore } from '../../store/useQxdStore';
 import { clsx } from 'clsx';
+import type { CompareFormula } from '../../types';
 
 function HardnessGauge({ value }: { value: number }) {
   const clamped = Math.max(20, Math.min(110, value));
@@ -100,10 +104,18 @@ function RatioPieChart({ ratios }: { ratios: { name: string; v: number; color: s
 }
 
 export default function ThreadPage() {
-  const { formula, updateFormula, recomputeFormula, recomputeWinding, setPage } = useQxdStore();
+  const {
+    formula, updateFormula, recomputeFormula, recomputeWinding, setPage,
+    compareFormulas, addCompareFormula, updateCompareFormula, removeCompareFormula,
+    toggleCompareFormula, applyCompareFormula, resetCompareFormulas,
+  } = useQxdStore();
+  const [showCompare, setShowCompare] = useState(true);
 
   useEffect(() => { recomputeFormula(); recomputeWinding(); }, []);
   useEffect(() => { recomputeFormula(); }, [formula.lacquerRatio, formula.tungOilRatio, formula.brickPowderRatio, formula.goldPowderRatio, formula.otherAdditives, formula.threadDiameter]);
+  useEffect(() => {
+    resetCompareFormulas();
+  }, [formula.id]);
 
   const ratios = [
     { name: '漆料', v: formula.lacquerRatio, color: '#8B2323' },
@@ -329,6 +341,128 @@ export default function ThreadPage() {
 
       <aside className="col-span-12 xl:col-span-3 space-y-4 overflow-y-auto scrollbar-thin pr-1">
         <div className="qxd-panel p-5 huiwen-border">
+          <div className="qxd-title-bar mb-3 cursor-pointer" onClick={() => setShowCompare(!showCompare)}>
+            <div className="title-icon"><GitCompare className="w-4 h-4" /></div>
+            <h2>配方试算对比</h2>
+            <span className="ml-auto text-xs text-ink-400 mr-2">{compareFormulas.filter(c => c.enabled).length}/3 方案</span>
+            {showCompare ? <ChevronUp className="w-4 h-4 text-ink-400" /> : <ChevronDown className="w-4 h-4 text-ink-400" />}
+          </div>
+          {showCompare && (
+            <>
+              <div className="flex gap-2 mb-3">
+                <button
+                  onClick={addCompareFormula}
+                  disabled={compareFormulas.length >= 3}
+                  className="flex-1 qxd-btn-ghost text-xs py-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Plus className="w-3.5 h-3.5" /> 添加方案
+                </button>
+                <button
+                  onClick={resetCompareFormulas}
+                  className="qxd-btn-ghost text-xs py-2 px-3"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              <div className="space-y-3 max-h-[380px] overflow-y-auto scrollbar-thin pr-1">
+                {compareFormulas.map((cf, idx) => (
+                  <CompareFormulaCard
+                    key={cf.compareId}
+                    cf={cf}
+                    idx={idx}
+                    isActive={Math.abs(cf.hardnessIndex - formula.hardnessIndex) < 0.5 && Math.abs(cf.threadDiameter - formula.threadDiameter) < 0.01}
+                    onUpdate={updateCompareFormula}
+                    onToggle={toggleCompareFormula}
+                    onRemove={removeCompareFormula}
+                    onApply={(id) => { applyCompareFormula(id); }}
+                  />
+                ))}
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-gold-100">
+                <h4 className="text-xs font-song font-semibold text-ink-600 mb-2">对比汇总</h4>
+                <div className="space-y-2">
+                  <div className="flex gap-1 text-[10px]">
+                    <div className="w-16" />
+                    {compareFormulas.filter(c => c.enabled).map(cf => (
+                      <div key={cf.compareId} className="flex-1 text-center font-semibold text-ink-600 truncate">
+                        {cf.label.split('（')[0]}
+                      </div>
+                    ))}
+                  </div>
+                  {[
+                    { k: 'hardnessIndex', label: '硬度', unit: '' },
+                    { k: 'plasticityIndex', label: '可塑性', unit: '' },
+                    { k: 'threadDiameter', label: '线径', unit: 'mm' },
+                    { k: 'warnings', label: '预警', unit: '' },
+                  ].map(row => (
+                    <div key={row.k} className="flex gap-1 text-[10px] items-center">
+                      <div className="w-16 text-ink-400">{row.label}</div>
+                      {compareFormulas.filter(c => c.enabled).map((cf, idx) => {
+                        const val = row.k === 'warnings' ? (cf as any)[row.k].length : (cf as any)[row.k];
+                        const bestVals = compareFormulas.filter(c => c.enabled).map(c => row.k === 'warnings' ? (c as any)[row.k].length : (c as any)[row.k]);
+                        let isBest = false;
+                        if (row.k === 'hardnessIndex') {
+                          const best = bestVals.reduce((best, v) => Math.abs(v - 65) < Math.abs(best - 65) ? v : best);
+                          isBest = Math.abs(val - 65) < Math.abs(best - 65) + 0.1;
+                        } else if (row.k === 'plasticityIndex') {
+                          isBest = val === Math.max(...bestVals);
+                        } else if (row.k === 'warnings') {
+                          isBest = val === Math.min(...bestVals);
+                        } else {
+                          isBest = idx === 0;
+                        }
+                        return (
+                          <div key={cf.compareId} className={clsx(
+                            'flex-1 text-center font-semibold py-1 rounded',
+                            isBest ? 'bg-emerald-100 text-emerald-700' : 'text-ink-600'
+                          )}>
+                            {row.k === 'warnings' ? (val > 0 ? `${val}条` : '无') : `${val}${row.unit}`}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                  <div className="flex gap-1 text-[10px] items-center">
+                    <div className="w-16 text-ink-400">金粉用量</div>
+                    {compareFormulas.filter(c => c.enabled).map(cf => {
+                      const weight = ((cf.threadDiameter ** 2) * 320) * cf.goldPowderRatio / 100;
+                      const vals = compareFormulas.filter(c => c.enabled).map(c => ((c.threadDiameter ** 2) * 320) * c.goldPowderRatio / 100);
+                      const isBest = weight === Math.min(...vals);
+                      return (
+                        <div key={cf.compareId} className={clsx(
+                          'flex-1 text-center font-semibold py-1 rounded',
+                          isBest ? 'bg-emerald-100 text-emerald-700' : 'text-ink-600'
+                        )}>
+                          {weight.toFixed(1)}g
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex gap-1 text-[10px] items-center">
+                    <div className="w-16 text-ink-400">总成本</div>
+                    {compareFormulas.filter(c => c.enabled).map(cf => {
+                      const cost = ((cf.threadDiameter ** 2) * 320) * (cf.lacquerRatio * 0.05 + cf.goldPowderRatio * 0.8 + cf.brickPowderRatio * 0.01) / 100;
+                      const vals = compareFormulas.filter(c => c.enabled).map(c => ((c.threadDiameter ** 2) * 320) * (c.lacquerRatio * 0.05 + c.goldPowderRatio * 0.8 + c.brickPowderRatio * 0.01) / 100);
+                      const isBest = cost === Math.min(...vals);
+                      return (
+                        <div key={cf.compareId} className={clsx(
+                          'flex-1 text-center font-semibold py-1 rounded',
+                          isBest ? 'bg-emerald-100 text-emerald-700' : 'text-ink-600'
+                        )}>
+                          ¥{cost.toFixed(0)}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="qxd-panel p-5 huiwen-border">
           <div className="qxd-title-bar mb-3">
             <div className="title-icon"><Sparkles className="w-4 h-4" /></div>
             <h2>配方速查</h2>
@@ -387,6 +521,122 @@ export default function ThreadPage() {
           进入盘绕造型 <ArrowRight className="w-5 h-5" />
         </button>
       </aside>
+    </div>
+  );
+}
+
+function CompareFormulaCard({
+  cf, idx, isActive, onUpdate, onToggle, onRemove, onApply,
+}: {
+  cf: CompareFormula;
+  idx: number;
+  isActive: boolean;
+  onUpdate: (id: string, patch: Partial<CompareFormula>) => void;
+  onToggle: (id: string) => void;
+  onRemove: (id: string) => void;
+  onApply: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const palette = ['#BE3A2B', '#D4AF37', '#4169E1'];
+  const color = palette[idx % palette.length];
+  const isSafe = cf.hardnessIndex >= 55 && cf.hardnessIndex <= 75;
+
+  return (
+    <div className={clsx(
+      'rounded-xl border-2 transition-all overflow-hidden',
+      cf.enabled ? 'border-gold-200 bg-rice-50/80' : 'border-ink-100 bg-ink-50/50 opacity-60',
+      isActive && 'ring-2 ring-cinnabar-400 ring-offset-1',
+    )}>
+      <div className="p-3">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="w-3 h-3 rounded-full shadow-sm" style={{ background: color }} />
+          <input
+            value={cf.label}
+            onChange={e => onUpdate(cf.compareId, { label: e.target.value })}
+            className="flex-1 bg-transparent text-xs font-song font-semibold text-ink-700 outline-none border-b border-transparent hover:border-gold-300 focus:border-cinnabar-400"
+          />
+          <div className="flex items-center gap-0.5">
+            <button
+              onClick={() => onToggle(cf.compareId)}
+              className="p-1 rounded hover:bg-gold-100 text-ink-400 hover:text-ink-600"
+              title={cf.enabled ? '隐藏' : '显示'}
+            >
+              {cf.enabled ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+            </button>
+            <button
+              onClick={() => onRemove(cf.compareId)}
+              className="p-1 rounded hover:bg-red-100 text-ink-400 hover:text-warn-danger"
+              title="删除方案"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="p-1 rounded hover:bg-gold-100 text-ink-400"
+            >
+              {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 text-[11px]">
+          <div className="flex items-center gap-1">
+            <span className="text-ink-400">硬度</span>
+            <span className={clsx('font-bold', isSafe ? 'text-emerald-600' : 'text-warn-danger')}>{cf.hardnessIndex.toFixed(1)}</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-ink-400">可塑性</span>
+            <span className="font-bold text-cinnabar-700">{cf.plasticityIndex.toFixed(0)}</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-ink-400">线径</span>
+            <span className="font-bold text-gold-700">Φ{cf.threadDiameter}</span>
+          </div>
+          {cf.warnings.length > 0 && (
+            <span className="qxd-badge !py-0 text-warn-danger text-[10px]">{cf.warnings.length}预警</span>
+          )}
+        </div>
+      </div>
+      {expanded && (
+        <div className="border-t border-gold-100 p-3 space-y-2 bg-white/50">
+          <div className="grid grid-cols-5 gap-2">
+            {[
+              { k: 'lacquerRatio', n: '漆', min: 25, max: 60 },
+              { k: 'tungOilRatio', n: '油', min: 5, max: 35 },
+              { k: 'brickPowderRatio', n: '砖', min: 15, max: 50 },
+              { k: 'goldPowderRatio', n: '金', min: 0, max: 20 },
+              { k: 'threadDiameter', n: '线径', min: 0.2, max: 4, step: 0.05 },
+            ].map(s => (
+              <div key={s.k} className="text-center">
+                <div className="text-[9px] text-ink-400 mb-1">{s.n}</div>
+                <input
+                  type="number"
+                  min={s.min} max={s.max} step={(s as any).step || 0.5}
+                  value={(cf as any)[s.k]}
+                  onChange={e => onUpdate(cf.compareId, { [s.k]: Math.max(s.min, Math.min(s.max, +e.target.value || 0)) } as any)}
+                  className="w-full px-1 py-1 text-center text-[10px] rounded border border-gold-200 bg-white outline-none focus:border-cinnabar-400"
+                />
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <div className="flex-1 text-[10px] text-ink-500">
+              漆/油/砖/金: {cf.lacquerRatio}/{cf.tungOilRatio}/{cf.brickPowderRatio}/{cf.goldPowderRatio}
+            </div>
+            <button
+              onClick={() => onApply(cf.compareId)}
+              className={clsx(
+                'px-3 py-1 rounded-lg text-[10px] font-semibold flex items-center gap-1 transition-all',
+                isActive
+                  ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
+                  : 'bg-cinnabar-gradient text-white border border-cinnabar-400 hover:shadow-cinnabar-glow'
+              )}
+            >
+              {isActive ? <Check className="w-3 h-3" /> : null}
+              {isActive ? '已应用' : '应用此方案'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

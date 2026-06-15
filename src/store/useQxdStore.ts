@@ -1,14 +1,138 @@
 import { create } from 'zustand';
-import type { AppState, PageKey, PatternScheme, ThreadFormula, WindingConfig, Work, Template } from '../types';
+import type {
+  AppState, PageKey, PatternScheme, ThreadFormula, WindingConfig, Work, Template,
+  Version, VersionDiff, CompareFormula, ConstructionPlan, ConstructionItem, PathLayer,
+} from '../types';
 import {
   createDefaultPattern, createDefaultFormula, createDefaultWinding, seedWorks, seedTemplates, seedCategories,
 } from '../data/mockData';
 import { calcHardnessIndex, calcPlasticityIndex, analyzeWarnings, calcDryingHours, calcZoneDensity, vectorizeImage, autoPartition } from '../utils/calculations';
 import { uid } from '../utils/calculations';
 
+function createCompareFormulas(baseFormula: ThreadFormula): CompareFormula[] {
+  return [
+    {
+      ...JSON.parse(JSON.stringify(baseFormula)),
+      compareId: 'cf_' + uid(),
+      label: '方案 A（标准）',
+      enabled: true,
+    },
+    {
+      ...JSON.parse(JSON.stringify(baseFormula)),
+      compareId: 'cf_' + uid(),
+      label: '方案 B（偏硬）',
+      brickPowderRatio: baseFormula.brickPowderRatio + 5,
+      tungOilRatio: baseFormula.tungOilRatio - 5,
+      enabled: true,
+    },
+  ].map(f => ({ ...f, hardnessIndex: calcHardnessIndex(f), plasticityIndex: calcPlasticityIndex(f), warnings: analyzeWarnings(f) }));
+}
+
+function generateConstructionPlan(pattern: PatternScheme, formula: ThreadFormula, winding: WindingConfig): ConstructionPlan {
+  const items: ConstructionItem[] = [];
+  let seq = 1;
+  const sortedZones = [...pattern.zones].sort((a, b) => a.layerOrder - b.layerOrder);
+
+  sortedZones.forEach((zone, zi) => {
+    const zonePathLayers = pattern.pathLayers.filter(p => p.zoneId === zone.id);
+    zonePathLayers.forEach((pl, pli) => {
+      const isGoldNode = winding.goldApplied && zi === sortedZones.length - 1 && pli === zonePathLayers.length - 1;
+      const stackingLayer = winding.stackingLayers.find(s => s.zoneId === zone.id && s.layerIndex === pli + 1);
+      items.push({
+        id: 'ci_' + uid(),
+        zoneId: zone.id,
+        zoneName: zone.name,
+        zoneColor: zone.color,
+        sequence: seq++,
+        layerIndex: pli + 1,
+        threadLength: stackingLayer?.threadLength || Math.round(zone.area * 0.25),
+        threadDiameter: formula.threadDiameter,
+        windingDirection: pl.windingDirection,
+        threadCount: pl.threadCount,
+        waitTimeMinutes: pli === zonePathLayers.length - 1 ? 60 : 20,
+        isGoldNode,
+        notes: isGoldNode ? '贴金前检查线料指触不粘' : zone.priority === 'primary' ? '主纹饰，注意走向流畅' : '辅纹饰，控制均匀度',
+        status: 'pending',
+      });
+    });
+  });
+
+  const totalThreadLength = items.reduce((s, i) => s + i.threadLength, 0);
+  const totalEstimatedHours = items.reduce((s, i) => s + i.waitTimeMinutes / 60 + i.threadCount * 0.1, 0);
+  const totalGoldNodes = items.filter(i => i.isGoldNode).length;
+
+  return { items, totalThreadLength, totalEstimatedHours, totalGoldNodes };
+}
+
+function compareVersions(v1: Version, v2: Version): VersionDiff {
+  const diffField = <T>(field: string, oldVal: T, newVal: T) => ({
+    field, oldValue: oldVal, newValue: newVal, changed: JSON.stringify(oldVal) !== JSON.stringify(newVal),
+  });
+
+  const patternZonesDiff: Array<{ zoneName: string; changes: any[] }> = [];
+  const allZoneNames = new Set([...v1.patternSnapshot.zones.map(z => z.name), ...v2.patternSnapshot.zones.map(z => z.name)]);
+  allZoneNames.forEach(zoneName => {
+    const z1 = v1.patternSnapshot.zones.find(z => z.name === zoneName);
+    const z2 = v2.patternSnapshot.zones.find(z => z.name === zoneName);
+    if (z1 && z2) {
+      const changes = [
+        diffField('layerOrder', z1.layerOrder, z2.layerOrder),
+        diffField('priority', z1.priority, z2.priority),
+        diffField('area', z1.area, z2.area),
+      ].filter(c => c.changed);
+      if (changes.length > 0) patternZonesDiff.push({ zoneName, changes });
+    } else if (!z1) {
+      patternZonesDiff.push({ zoneName, changes: [{ field: '新增', oldValue: null, newValue: z2, changed: true }] });
+    } else {
+      patternZonesDiff.push({ zoneName, changes: [{ field: '删除', oldValue: z1, newValue: null, changed: true }] });
+    }
+  });
+
+  const formulaDiff = [
+    diffField('lacquerRatio', v1.formulaSnapshot.lacquerRatio, v2.formulaSnapshot.lacquerRatio),
+    diffField('tungOilRatio', v1.formulaSnapshot.tungOilRatio, v2.formulaSnapshot.tungOilRatio),
+    diffField('brickPowderRatio', v1.formulaSnapshot.brickPowderRatio, v2.formulaSnapshot.brickPowderRatio),
+    diffField('goldPowderRatio', v1.formulaSnapshot.goldPowderRatio, v2.formulaSnapshot.goldPowderRatio),
+    diffField('threadDiameter', v1.formulaSnapshot.threadDiameter, v2.formulaSnapshot.threadDiameter),
+    diffField('hardnessIndex', v1.formulaSnapshot.hardnessIndex, v2.formulaSnapshot.hardnessIndex),
+    diffField('plasticityIndex', v1.formulaSnapshot.plasticityIndex, v2.formulaSnapshot.plasticityIndex),
+  ].filter(c => c.changed);
+
+  const densityDiff: Array<{ zoneName: string; density: any }> = [];
+  v1.windingSnapshot.densityMap.forEach(d1 => {
+    const z1 = v1.patternSnapshot.zones.find(z => z.id === d1.zoneId);
+    const d2 = v2.windingSnapshot.densityMap.find(x => {
+      const z2 = v2.patternSnapshot.zones.find(zz => zz.id === x.zoneId);
+      return z1 && z2 && z1.name === z2.name;
+    });
+    if (d2 && d1.density !== d2.density) {
+      densityDiff.push({ zoneName: z1?.name || '未知', density: diffField('density', d1.density, d2.density) });
+    }
+  });
+
+  return {
+    versionId: v2.id,
+    compareToId: v1.id,
+    pattern: {
+      zoneCount: diffField('分区数', v1.patternSnapshot.zones.length, v2.patternSnapshot.zones.length),
+      pathLayerCount: diffField('路径层数', v1.patternSnapshot.pathLayers.length, v2.patternSnapshot.pathLayers.length),
+      zones: patternZonesDiff,
+    },
+    formula: formulaDiff,
+    winding: {
+      totalHeight: diffField('总高度(mm)', v1.windingSnapshot.totalHeight, v2.windingSnapshot.totalHeight),
+      stackingLayers: diffField('堆叠层数', v1.windingSnapshot.stackingLayers.length, v2.windingSnapshot.stackingLayers.length),
+      dryingHours: diffField('干燥时间(h)', v1.windingSnapshot.dryingHours, v2.windingSnapshot.dryingHours),
+      densityChanges: densityDiff,
+    },
+  };
+}
+
 const initPattern = createDefaultPattern();
 const initFormula = createDefaultFormula();
 const initWinding = createDefaultWinding(initPattern.zones, initFormula.threadDiameter);
+
+const seedVersions: Version[] = [];
 
 export const useQxdStore = create<AppState & {
   setPage: (p: PageKey) => void;
@@ -21,6 +145,7 @@ export const useQxdStore = create<AppState & {
   addZone: () => void;
   updateZone: (zid: string, patch: Record<string, any>) => void;
   removeZone: (zid: string) => void;
+  updatePathLayer: (plid: string, patch: Partial<PathLayer>) => void;
   createWorkFromTemplate: (tpl: Template) => void;
   updateWork: (wid: string, patch: Partial<Work>) => void;
   saveCurrentToWorks: () => void;
@@ -28,6 +153,20 @@ export const useQxdStore = create<AppState & {
   selectWork: (wid: string | null) => void;
   processVectorize: () => Promise<void>;
   processAutoPartition: () => Promise<void>;
+  saveVersion: (note: string) => void;
+  getVersionsByWork: (workId: string) => Version[];
+  restoreVersion: (versionId: string) => void;
+  compareTwoVersions: (v1Id: string, v2Id: string) => VersionDiff | null;
+  setSelectedCompareVersion: (vid: string | null) => void;
+  addCompareFormula: () => void;
+  updateCompareFormula: (compareId: string, patch: Partial<ThreadFormula>) => void;
+  removeCompareFormula: (compareId: string) => void;
+  toggleCompareFormula: (compareId: string) => void;
+  applyCompareFormula: (compareId: string) => void;
+  resetCompareFormulas: () => void;
+  generateConstructionPlan: () => void;
+  updateConstructionItem: (itemId: string, patch: Partial<ConstructionItem>) => void;
+  saveConstructionPlanToWork: () => void;
 }>()((set, get) => ({
   currentPage: 'dashboard',
   currentWorkId: null,
@@ -40,6 +179,10 @@ export const useQxdStore = create<AppState & {
   selectedTemplateId: null,
   selectedWorkId: null,
   showTemplateDetail: false,
+  versions: seedVersions,
+  compareFormulas: createCompareFormulas(initFormula),
+  selectedCompareVersionId: null,
+  constructionPlan: generateConstructionPlan(initPattern, initFormula, initWinding),
 
   setPage: (p) => set({ currentPage: p }),
   setCurrentWork: (id) => set({ currentWorkId: id }),
@@ -186,5 +329,161 @@ export const useQxdStore = create<AppState & {
       },
     });
     setTimeout(() => get().recomputeWinding(), 0);
+  },
+
+  updatePathLayer: (plid, patch) => {
+    const pathLayers = get().pattern.pathLayers.map(pl =>
+      pl.id === plid ? { ...pl, ...patch } : pl
+    );
+    set({ pattern: { ...get().pattern, pathLayers } });
+    setTimeout(() => {
+      get().recomputeWinding();
+      get().generateConstructionPlan();
+    }, 0);
+  },
+
+  saveVersion: (note) => {
+    const { currentWorkId, pattern, formula, winding, works, versions } = get();
+    if (!currentWorkId) {
+      alert('请先保存作品到档案，再创建版本');
+      return;
+    }
+    const workVersions = versions.filter(v => v.workId === currentWorkId);
+    const newVersion: Version = {
+      id: 'v_' + uid(),
+      workId: currentWorkId,
+      versionNumber: workVersions.length + 1,
+      name: `v${workVersions.length + 1} · ${pattern.name}`,
+      createdAt: Date.now(),
+      author: '我',
+      note,
+      patternSnapshot: JSON.parse(JSON.stringify(pattern)),
+      formulaSnapshot: JSON.parse(JSON.stringify(formula)),
+      windingSnapshot: JSON.parse(JSON.stringify(winding)),
+    };
+    set({ versions: [...versions, newVersion] });
+  },
+
+  getVersionsByWork: (workId) => {
+    return get().versions.filter(v => v.workId === workId).sort((a, b) => b.versionNumber - a.versionNumber);
+  },
+
+  restoreVersion: (versionId) => {
+    const version = get().versions.find(v => v.id === versionId);
+    if (!version) return;
+    const pattern = JSON.parse(JSON.stringify(version.patternSnapshot));
+    const formula = JSON.parse(JSON.stringify(version.formulaSnapshot));
+    const winding = JSON.parse(JSON.stringify(version.windingSnapshot));
+    set({
+      pattern: { ...pattern, id: get().pattern.id },
+      formula: { ...formula, id: get().formula.id },
+      winding: { ...winding, id: get().winding.id },
+    });
+    setTimeout(() => get().generateConstructionPlan(), 0);
+  },
+
+  compareTwoVersions: (v1Id, v2Id) => {
+    const { versions } = get();
+    const v1 = versions.find(v => v.id === v1Id);
+    const v2 = versions.find(v => v.id === v2Id);
+    if (!v1 || !v2) return null;
+    return compareVersions(v1, v2);
+  },
+
+  setSelectedCompareVersion: (vid) => set({ selectedCompareVersionId: vid }),
+
+  addCompareFormula: () => {
+    const { compareFormulas, formula } = get();
+    if (compareFormulas.length >= 3) {
+      alert('最多支持 3 个配方同时对比');
+      return;
+    }
+    const labels = ['方案 A（标准）', '方案 B（偏硬）', '方案 C（偏软）'];
+    const newCf: CompareFormula = {
+      ...JSON.parse(JSON.stringify(formula)),
+      compareId: 'cf_' + uid(),
+      label: labels[compareFormulas.length] || `方案 ${String.fromCharCode(65 + compareFormulas.length)}`,
+      enabled: true,
+    };
+    newCf.hardnessIndex = calcHardnessIndex(newCf);
+    newCf.plasticityIndex = calcPlasticityIndex(newCf);
+    newCf.warnings = analyzeWarnings(newCf);
+    set({ compareFormulas: [...compareFormulas, newCf] });
+  },
+
+  updateCompareFormula: (compareId, patch) => {
+    const compareFormulas = get().compareFormulas.map(cf => {
+      if (cf.compareId !== compareId) return cf;
+      const updated = { ...cf, ...patch };
+      updated.hardnessIndex = calcHardnessIndex(updated);
+      updated.plasticityIndex = calcPlasticityIndex(updated);
+      updated.warnings = analyzeWarnings(updated);
+      return updated;
+    });
+    set({ compareFormulas });
+  },
+
+  removeCompareFormula: (compareId) => {
+    set({ compareFormulas: get().compareFormulas.filter(cf => cf.compareId !== compareId) });
+  },
+
+  toggleCompareFormula: (compareId) => {
+    set({
+      compareFormulas: get().compareFormulas.map(cf =>
+        cf.compareId === compareId ? { ...cf, enabled: !cf.enabled } : cf
+      ),
+    });
+  },
+
+  applyCompareFormula: (compareId) => {
+    const cf = get().compareFormulas.find(c => c.compareId === compareId);
+    if (!cf) return;
+    const { id, ...rest } = cf;
+    const formula = { ...rest, id: get().formula.id } as ThreadFormula;
+    formula.hardnessIndex = calcHardnessIndex(formula);
+    formula.plasticityIndex = calcPlasticityIndex(formula);
+    formula.warnings = analyzeWarnings(formula);
+    set({ formula });
+    setTimeout(() => {
+      get().recomputeWinding();
+      get().generateConstructionPlan();
+    }, 0);
+  },
+
+  resetCompareFormulas: () => {
+    set({ compareFormulas: createCompareFormulas(get().formula) });
+  },
+
+  generateConstructionPlan: () => {
+    const { pattern, formula, winding } = get();
+    const plan = generateConstructionPlan(pattern, formula, winding);
+    set({ constructionPlan: plan });
+  },
+
+  updateConstructionItem: (itemId, patch) => {
+    const plan = get().constructionPlan;
+    if (!plan) return;
+    const items = plan.items.map(item =>
+      item.id === itemId ? { ...item, ...patch } : item
+    );
+    set({ constructionPlan: { ...plan, items } });
+  },
+
+  saveConstructionPlanToWork: () => {
+    const { constructionPlan, currentWorkId, works } = get();
+    if (!constructionPlan || !currentWorkId) return;
+    const work = works.find(w => w.id === currentWorkId);
+    if (!work) return;
+    const steps = constructionPlan.items.map((item, i) => ({
+      id: 'ps_' + uid(),
+      stepOrder: i + 1,
+      name: `${item.zoneName} · 第${item.layerIndex}层`,
+      description: `${item.windingDirection === 'cw' ? '顺时针' : '逆时针'}盘绕 ${item.threadCount} 匝，用线约 ${item.threadLength}m，半干等待 ${item.waitTimeMinutes} 分钟${item.isGoldNode ? '，贴金节点' : ''}`,
+      durationHours: Math.round((item.waitTimeMinutes / 60 + item.threadCount * 0.1) * 10) / 10,
+      status: item.status,
+    }));
+    set({
+      works: works.map(w => w.id === currentWorkId ? { ...w, steps, updatedAt: Date.now() } : w),
+    });
   },
 }));
