@@ -159,6 +159,12 @@ export interface FieldDiff<T> {
   changed: boolean;
 }
 
+export interface PathLayerDiff {
+  zoneName: string;
+  pathLayerId: string;
+  changes: FieldDiff<any>[];
+}
+
 export interface VersionDiff {
   versionId: string;
   compareToId: string;
@@ -166,6 +172,7 @@ export interface VersionDiff {
     zoneCount: FieldDiff<number>;
     pathLayerCount: FieldDiff<number>;
     zones: Array<{ zoneName: string; changes: FieldDiff<any>[] }>;
+    pathLayers: PathLayerDiff[];
   };
   formula: FieldDiff<any>[];
   winding: {
@@ -174,6 +181,15 @@ export interface VersionDiff {
     dryingHours: FieldDiff<number>;
     densityChanges: Array<{ zoneName: string; density: FieldDiff<number> }>;
   };
+}
+
+export interface RestoreRecord {
+  id: string;
+  workId: string;
+  fromVersionId: string;
+  fromVersionName: string;
+  restoredAt: number;
+  summary: string;
 }
 
 export interface CompareFormula extends ThreadFormula {
@@ -222,4 +238,5 @@ export interface AppState {
   compareFormulas: CompareFormula[];
   selectedCompareVersionId: string | null;
   constructionPlan: ConstructionPlan | null;
+  restoreRecords: RestoreRecord[];
 }

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type {
   AppState, PageKey, PatternScheme, ThreadFormula, WindingConfig, Work, Template,
   Version, VersionDiff, CompareFormula, ConstructionPlan, ConstructionItem, PathLayer,
+  PathLayerDiff, RestoreRecord, PatternZone,
 } from '../types';
 import {
   createDefaultPattern, createDefaultFormula, createDefaultWinding, seedWorks, seedTemplates, seedCategories,
@@ -28,31 +29,36 @@ function createCompareFormulas(baseFormula: ThreadFormula): CompareFormula[] {
   ].map(f => ({ ...f, hardnessIndex: calcHardnessIndex(f), plasticityIndex: calcPlasticityIndex(f), warnings: analyzeWarnings(f) }));
 }
 
-function generateConstructionPlan(pattern: PatternScheme, formula: ThreadFormula, winding: WindingConfig): ConstructionPlan {
+function generateConstructionPlan(pattern: PatternScheme, formula: ThreadFormula, winding: WindingConfig, existingItems?: ConstructionItem[]): ConstructionPlan {
   const items: ConstructionItem[] = [];
   let seq = 1;
   const sortedZones = [...pattern.zones].sort((a, b) => a.layerOrder - b.layerOrder);
 
   sortedZones.forEach((zone, zi) => {
-    const zonePathLayers = pattern.pathLayers.filter(p => p.zoneId === zone.id);
+    const zonePathLayers = pattern.pathLayers
+      .filter(p => p.zoneId === zone.id)
+      .sort((a, b) => a.order - b.order);
     zonePathLayers.forEach((pl, pli) => {
       const isGoldNode = winding.goldApplied && zi === sortedZones.length - 1 && pli === zonePathLayers.length - 1;
-      const stackingLayer = winding.stackingLayers.find(s => s.zoneId === zone.id && s.layerIndex === pli + 1);
+      const stackingLayer = winding.stackingLayers.find(s => s.zoneId === zone.id && s.layerIndex === pl.order);
+      const existingItem = existingItems?.find(ei =>
+        ei.zoneId === zone.id && ei.layerIndex === pl.order
+      );
       items.push({
-        id: 'ci_' + uid(),
+        id: existingItem?.id || 'ci_' + uid(),
         zoneId: zone.id,
         zoneName: zone.name,
         zoneColor: zone.color,
         sequence: seq++,
-        layerIndex: pli + 1,
+        layerIndex: pl.order,
         threadLength: stackingLayer?.threadLength || Math.round(zone.area * 0.25),
         threadDiameter: formula.threadDiameter,
         windingDirection: pl.windingDirection,
         threadCount: pl.threadCount,
-        waitTimeMinutes: pli === zonePathLayers.length - 1 ? 60 : 20,
+        waitTimeMinutes: existingItem?.waitTimeMinutes ?? (pli === zonePathLayers.length - 1 ? 60 : 20),
         isGoldNode,
         notes: isGoldNode ? '贴金前检查线料指触不粘' : zone.priority === 'primary' ? '主纹饰，注意走向流畅' : '辅纹饰，控制均匀度',
-        status: 'pending',
+        status: existingItem?.status ?? 'pending',
       });
     });
   });
@@ -88,6 +94,32 @@ function compareVersions(v1: Version, v2: Version): VersionDiff {
     }
   });
 
+  const pathLayersDiff: PathLayerDiff[] = [];
+  const allPLKeys = new Set<string>();
+  const plKey = (pl: PathLayer, zones: PatternZone[]) => {
+    const z = zones.find(zz => zz.id === pl.zoneId);
+    return `${z?.name || pl.zoneId}_L${pl.order}`;
+  };
+  v1.patternSnapshot.pathLayers.forEach(pl => allPLKeys.add(plKey(pl, v1.patternSnapshot.zones)));
+  v2.patternSnapshot.pathLayers.forEach(pl => allPLKeys.add(plKey(pl, v2.patternSnapshot.zones)));
+  allPLKeys.forEach(key => {
+    const pl1 = v1.patternSnapshot.pathLayers.find(p => plKey(p, v1.patternSnapshot.zones) === key);
+    const pl2 = v2.patternSnapshot.pathLayers.find(p => plKey(p, v2.patternSnapshot.zones) === key);
+    const zName = key.split('_L')[0];
+    if (pl1 && pl2) {
+      const changes = [
+        diffField('windingDirection', pl1.windingDirection === 'cw' ? '顺时针' : '逆时针', pl2.windingDirection === 'cw' ? '顺时针' : '逆时针'),
+        diffField('threadCount', pl1.threadCount, pl2.threadCount),
+        diffField('order', pl1.order, pl2.order),
+      ].filter(c => c.changed);
+      if (changes.length > 0) pathLayersDiff.push({ zoneName: zName, pathLayerId: pl1.id, changes });
+    } else if (!pl1) {
+      pathLayersDiff.push({ zoneName: zName, pathLayerId: pl2?.id || '', changes: [{ field: '新增路径层', oldValue: null, newValue: `匝数${pl2?.threadCount} ${pl2?.windingDirection === 'cw' ? '顺时针' : '逆时针'} Z${pl2?.order}`, changed: true }] });
+    } else {
+      pathLayersDiff.push({ zoneName: zName, pathLayerId: pl1.id, changes: [{ field: '删除路径层', oldValue: `匝数${pl1.threadCount} ${pl1.windingDirection === 'cw' ? '顺时针' : '逆时针'} Z${pl1.order}`, newValue: null, changed: true }] });
+    }
+  });
+
   const formulaDiff = [
     diffField('lacquerRatio', v1.formulaSnapshot.lacquerRatio, v2.formulaSnapshot.lacquerRatio),
     diffField('tungOilRatio', v1.formulaSnapshot.tungOilRatio, v2.formulaSnapshot.tungOilRatio),
@@ -117,6 +149,7 @@ function compareVersions(v1: Version, v2: Version): VersionDiff {
       zoneCount: diffField('分区数', v1.patternSnapshot.zones.length, v2.patternSnapshot.zones.length),
       pathLayerCount: diffField('路径层数', v1.patternSnapshot.pathLayers.length, v2.patternSnapshot.pathLayers.length),
       zones: patternZonesDiff,
+      pathLayers: pathLayersDiff,
     },
     formula: formulaDiff,
     winding: {
@@ -167,6 +200,7 @@ export const useQxdStore = create<AppState & {
   generateConstructionPlan: () => void;
   updateConstructionItem: (itemId: string, patch: Partial<ConstructionItem>) => void;
   saveConstructionPlanToWork: () => void;
+  getRestoreRecordsByWork: (workId: string) => RestoreRecord[];
 }>()((set, get) => ({
   currentPage: 'dashboard',
   currentWorkId: null,
@@ -183,6 +217,7 @@ export const useQxdStore = create<AppState & {
   compareFormulas: createCompareFormulas(initFormula),
   selectedCompareVersionId: null,
   constructionPlan: generateConstructionPlan(initPattern, initFormula, initWinding),
+  restoreRecords: [],
 
   setPage: (p) => set({ currentPage: p }),
   setCurrentWork: (id) => set({ currentWorkId: id }),
@@ -420,6 +455,15 @@ export const useQxdStore = create<AppState & {
     const works = get().works.map(w =>
       w.id === version.workId ? { ...w, patternSnapshot: pattern, formulaSnapshot: formula, windingSnapshot: winding, updatedAt: Date.now() } : w
     );
+    const summary = `硬度${formula.hardnessIndex}→可塑性${formula.plasticityIndex}·${pattern.zones.length}分区·${pattern.pathLayers.length}路径层·总高${winding.totalHeight}mm`;
+    const record: RestoreRecord = {
+      id: 'rr_' + uid(),
+      workId: version.workId,
+      fromVersionId: version.id,
+      fromVersionName: version.name,
+      restoredAt: Date.now(),
+      summary,
+    };
     set({
       pattern: { ...pattern, id: get().pattern.id },
       formula: { ...formula, id: get().formula.id },
@@ -427,6 +471,7 @@ export const useQxdStore = create<AppState & {
       currentWorkId: version.workId,
       selectedWorkId: version.workId,
       works,
+      restoreRecords: [...get().restoreRecords, record],
     });
     setTimeout(() => get().generateConstructionPlan(), 0);
   },
@@ -504,8 +549,9 @@ export const useQxdStore = create<AppState & {
   },
 
   generateConstructionPlan: () => {
-    const { pattern, formula, winding } = get();
-    const plan = generateConstructionPlan(pattern, formula, winding);
+    const { pattern, formula, winding, constructionPlan } = get();
+    const existingItems = constructionPlan?.items;
+    const plan = generateConstructionPlan(pattern, formula, winding, existingItems);
     set({ constructionPlan: plan });
   },
 
@@ -563,5 +609,9 @@ export const useQxdStore = create<AppState & {
       works: currentWorks.map(w => w.id === workId ? { ...w, steps, updatedAt: Date.now() } : w),
       selectedWorkId: workId,
     });
+  },
+
+  getRestoreRecordsByWork: (workId) => {
+    return get().restoreRecords.filter(r => r.workId === workId).sort((a, b) => b.restoredAt - a.restoredAt);
   },
 }));

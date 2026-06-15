@@ -1,6 +1,7 @@
-import { Layers, Circle, AlertTriangle, Clock, TrendingUp, ChevronRight, Sparkles, Crown } from 'lucide-react';
+import { useState } from 'react';
+import { Layers, Circle, AlertTriangle, Clock, TrendingUp, ChevronRight, Sparkles, Crown, Droplets, Thermometer, Timer, Filter } from 'lucide-react';
 import { useQxdStore } from '@/store/useQxdStore';
-import { formatDate } from '@/utils/calculations';
+import { formatDate, formatDateTime } from '@/utils/calculations';
 import type { PageKey } from '@/types';
 import { clsx } from 'clsx';
 
@@ -10,13 +11,27 @@ const entryCards: { key: PageKey; title: string; sub: string; color: string; ico
   { key: 'winding', title: '盘绕造型', sub: '密度堆叠·光影模拟', color: 'from-slate-600 to-stone-900', icon: Sparkles, metric: '总高 9.4mm', hint: '查看立体层次与贴金效果' },
 ];
 
+type TimeFilter = 'today' | 'week' | 'all';
+
 export default function Dashboard() {
-  const { works, templates, setPage, updateWork } = useQxdStore();
+  const { works, templates, setPage, updateWork, selectWork } = useQxdStore();
+  const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const inProgress = works.filter(w => w.status === 'in-progress');
   const completed = works.filter(w => w.status === 'completed');
   const totalAlerts = works.reduce((s, w) => s + w.alerts.filter(a => !a.resolved).length, 0);
   const highAlerts = works.reduce((s, w) => s + w.alerts.filter(a => !a.resolved && a.severity === 'high').length, 0);
   const totalHours = works.reduce((s, w) => s + w.steps.reduce((a, st) => st.status === 'done' ? a + st.durationHours : a, 0), 0);
+
+  const now = Date.now();
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  const weekStart = new Date(todayStart); weekStart.setDate(weekStart.getDate() - (weekStart.getDay() || 7) + 1);
+
+  const productionWorks = works.filter(w => {
+    if (w.status !== 'in-progress' && w.status !== 'draft') return false;
+    if (timeFilter === 'today') return w.updatedAt >= todayStart.getTime();
+    if (timeFilter === 'week') return w.updatedAt >= weekStart.getTime();
+    return true;
+  });
 
   return (
     <div className="space-y-6">
@@ -55,7 +70,7 @@ export default function Dashboard() {
               { label: '在制作品', val: inProgress.length, color: 'text-cinnabar-700', bg: 'from-cinnabar-50 to-rose-50', bd: 'border-cinnabar-200' },
               { label: '已完成', val: completed.length, color: 'text-emerald-700', bg: 'from-emerald-50 to-green-50', bd: 'border-emerald-200' },
               { label: '模板总数', val: templates.length, color: 'text-gold-700', bg: 'from-gold-50 to-amber-50', bd: 'border-gold-300' },
-              { label: '累计工时', val: totalHours + 'h', color: 'text-ink-700', bg: 'from-ink-50 to-rice-100', bd: 'border-ink-200' },
+              { label: '累计工时', val: totalHours.toFixed(1) + 'h', color: 'text-ink-700', bg: 'from-ink-50 to-rice-100', bd: 'border-ink-200' },
             ].map(m => (
               <div key={m.label} className={clsx('rounded-xl border p-3.5 bg-gradient-to-br', m.bd, m.bg)}>
                 <p className="text-xs text-ink-400 mb-1">{m.label}</p>
@@ -106,6 +121,114 @@ export default function Dashboard() {
         ))}
       </section>
 
+      <section className="qxd-panel p-5 huiwen-border">
+        <div className="qxd-title-bar mb-4">
+          <div className="title-icon"><Timer className="w-4 h-4" /></div>
+          <h2>工坊生产看板</h2>
+          <div className="ml-auto flex items-center gap-2">
+            {(['all', 'today', 'week'] as const).map(f => (
+              <button key={f} onClick={() => setTimeFilter(f)}
+                className={clsx('px-3 py-1.5 rounded-lg text-xs font-hei transition-all border',
+                  timeFilter === f
+                    ? 'bg-cinnabar-gradient text-white border-gold-400 shadow-cinnabar-glow'
+                    : 'bg-rice-50 text-ink-500 border-ink-100 hover:border-gold-200')}>
+                {{ all: '全部', today: '今日', week: '本周' }[f]}
+              </button>
+            ))}
+          </div>
+        </div>
+        {productionWorks.length === 0 ? (
+          <div className="py-10 text-center">
+            <Timer className="w-10 h-10 text-ink-200 mx-auto mb-3" />
+            <p className="text-ink-400 font-song">
+              {timeFilter === 'all' ? '暂无在制作品，开始新创作或从模板创建' : `暂无${timeFilter === 'today' ? '今日' : '本周'}更新的在制作品`}
+            </p>
+            <button className="mt-3 qxd-btn-ghost text-sm" onClick={() => setPage('pattern')}>
+              <Sparkles className="w-4 h-4" /> 开始新创作
+            </button>
+          </div>
+        ) : (
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {productionWorks.map(w => {
+              const doneSteps = w.steps.filter(s => s.status === 'done').length;
+              const totalSteps = w.steps.length;
+              const pct = totalSteps ? Math.round((doneSteps / totalSteps) * 100) : 0;
+              const currentStep = w.steps.find(s => s.status === 'in-progress');
+              const remainingHours = w.steps.filter(s => s.status !== 'done').reduce((a, s) => a + s.durationHours, 0);
+              const dryingStep = w.steps.find((s, i) => s.name.includes('干燥') || (s.status !== 'done' && i > 0 && w.steps[i - 1]?.status === 'done'));
+              const openAlerts = w.alerts.filter(a => !a.resolved);
+              const highAlertsCount = openAlerts.filter(a => a.severity === 'high').length;
+              return (
+                <div key={w.id} className="rounded-xl border-2 border-gold-100 bg-rice-50/60 p-4 hover:border-gold-300 hover:shadow-panel transition-all cursor-pointer group"
+                     onClick={() => { selectWork(w.id); setPage('archive'); }}>
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className="w-12 h-12 rounded-lg shadow-panel grain-overlay flex-shrink-0" style={{ background: w.thumbnail }}>
+                      <div className="w-full h-full rounded-lg" style={{ background: 'linear-gradient(135deg,rgba(212,175,55,0.25) 0%,transparent 60%)' }} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-song font-semibold text-ink-800 truncate group-hover:text-cinnabar-700">{w.name}</h4>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className={clsx('qxd-badge text-[9px]',
+                          w.status === 'in-progress' ? 'border-cinnabar-300 bg-cinnabar-50 text-cinnabar-700' : 'border-ink-200 bg-ink-50 text-ink-500')}>
+                          {w.status === 'in-progress' ? '制作中' : '草稿'}
+                        </span>
+                        {highAlertsCount > 0 && (
+                          <span className="qxd-badge border-warn-danger/60 bg-warn-danger/10 text-warn-danger text-[9px]">
+                            <AlertTriangle className="w-2.5 h-2.5" /> {highAlertsCount}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mb-3">
+                    <div className="flex items-center justify-between text-xs text-ink-400 mb-1">
+                      <span>总进度</span>
+                      <span className="font-song font-bold text-ink-700">{pct}%</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-ink-100 overflow-hidden">
+                      <div className="h-full rounded-full bg-gradient-to-r from-cinnabar-500 to-gold-500 transition-all" style={{ width: pct + '%' }} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-[10px]">
+                    <div className="p-2 rounded-lg bg-cinnabar-50/60 border border-cinnabar-100 text-center">
+                      <div className="text-ink-400">当前工序</div>
+                      <div className="font-song font-semibold text-cinnabar-700 truncate">{currentStep?.name || (totalSteps > 0 ? '待开工' : '无')}</div>
+                    </div>
+                    <div className="p-2 rounded-lg bg-gold-50/60 border border-gold-200 text-center">
+                      <div className="text-ink-400">剩余工时</div>
+                      <div className="font-song font-semibold text-gold-700">{remainingHours.toFixed(1)}h</div>
+                    </div>
+                    <div className={clsx('p-2 rounded-lg border text-center',
+                      dryingStep ? 'bg-blue-50/60 border-blue-200' : 'bg-rice-50 border-ink-100')}>
+                      <div className="text-ink-400">干燥等待</div>
+                      <div className={clsx('font-song font-semibold', dryingStep ? 'text-blue-700' : 'text-ink-400')}>
+                        {dryingStep ? `${dryingStep.durationHours}h` : '—'}
+                      </div>
+                    </div>
+                  </div>
+                  {openAlerts.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {openAlerts.slice(0, 2).map(a => (
+                        <div key={a.id} className={clsx('flex items-center gap-1.5 px-2 py-1 rounded text-[10px]',
+                          a.severity === 'high' ? 'bg-warn-danger/10 text-warn-danger' : 'bg-warn-soft/10 text-warn-soft')}>
+                          <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+                          <span className="truncate">
+                            {({ fragile: '变脆风险', collapse: '坍塌风险', crack: '裂纹风险', drying: '干燥超时', humidity: '湿度偏离' } as any)[a.type]}
+                          </span>
+                        </div>
+                      ))}
+                      {openAlerts.length > 2 && (
+                        <span className="text-[9px] text-ink-400">+{openAlerts.length - 2} 条更多提醒</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
       <div className="grid lg:grid-cols-3 gap-5">
         <section className="lg:col-span-2 qxd-panel p-5 huiwen-border">
           <div className="qxd-title-bar">
@@ -125,7 +248,7 @@ export default function Dashboard() {
               const s = statusMap[w.status];
               return (
                 <div key={w.id} className="group flex items-center gap-4 p-3 rounded-xl border border-transparent hover:border-gold-200 hover:bg-rice-100/60 transition-colors cursor-pointer"
-                     onClick={() => { updateWork(w.id, {}); setPage('archive'); }}>
+                     onClick={() => { selectWork(w.id); setPage('archive'); }}>
                   <div className="w-14 h-14 rounded-lg flex-shrink-0 shadow-panel grain-overlay" style={{ background: w.thumbnail }}>
                     <div className="w-full h-full rounded-lg" style={{ background: 'linear-gradient(135deg,rgba(212,175,55,0.25) 0%,transparent 60%)' }} />
                   </div>

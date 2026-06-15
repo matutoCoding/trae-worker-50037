@@ -2,12 +2,12 @@ import { useState } from 'react';
 import {
   FileArchive, Search, Filter, AlertTriangle, Clock, Layers, Sparkles, ChevronRight, X, Play, Pause,
   Download, Share2, Trash2, CheckCircle2, AlertCircle, GitBranch, RotateCcw, Save, GitCompare,
-  ChevronDown, ChevronUp, ArrowUpDown,
+  ChevronDown, ChevronUp, ArrowUpDown, History,
 } from 'lucide-react';
 import { useQxdStore } from '../../store/useQxdStore';
 import { formatDateTime, formatDate } from '../../utils/calculations';
 import { clsx } from 'clsx';
-import type { Work, VersionDiff } from '../../types';
+import type { Work, VersionDiff, RestoreRecord } from '../../types';
 
 const statusMap: Record<Work['status'], { label: string; dot: string; cls: string; icon: any }> = {
   draft: { label: '草稿', dot: 'bg-ink-400', cls: 'border-ink-200 bg-ink-50 text-ink-500', icon: Clock },
@@ -21,6 +21,7 @@ export default function ArchivePage() {
     works, selectedWorkId, selectWork, updateWork, setPage,
     versions, saveVersion, getVersionsByWork, restoreVersion, compareTwoVersions,
     setSelectedCompareVersion, selectedCompareVersionId,
+    getRestoreRecordsByWork,
   } = useQxdStore();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Work['status'] | 'all'>('all');
@@ -33,6 +34,7 @@ export default function ArchivePage() {
   const displayFormula = selected?.formulaSnapshot;
   const displayWinding = selected?.windingSnapshot;
   const workVersions = selectedWorkId ? getVersionsByWork(selectedWorkId) : [];
+  const workRestoreRecords = selectedWorkId ? getRestoreRecordsByWork(selectedWorkId) : [];
   const compareDiff: VersionDiff | null = showVersionCompare && selectedCompareVersionId && workVersions[0]
     ? compareTwoVersions(selectedCompareVersionId, workVersions[0].id)
     : null;
@@ -511,6 +513,25 @@ export default function ArchivePage() {
                             ))}
                           </div>
                         </div>
+                        {compareDiff.pattern.pathLayers.length > 0 && (
+                          <div className="p-3 rounded-lg bg-ink-50 border border-ink-100">
+                            <h4 className="text-xs font-song font-semibold text-ink-700 mb-2">路径层参数</h4>
+                            <div className="space-y-1.5 text-[11px]">
+                              {compareDiff.pattern.pathLayers.map(pld => (
+                                <div key={pld.pathLayerId || pld.zoneName} className="pl-2 border-l-2 border-blue-300">
+                                  <span className="text-blue-700 font-semibold">{pld.zoneName}</span>
+                                  {pld.changes.map((c, ci) => (
+                                    <div key={ci} className="text-ink-500 ml-2">
+                                      {c.field}: <span className="text-warn-soft">{String(c.oldValue)}</span>
+                                      <ArrowUpDown className="w-3 h-3 inline mx-1 text-ink-300" />
+                                      <span className="text-emerald-600">{String(c.newValue)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         <div className="p-3 rounded-lg bg-ink-50 border border-ink-100">
                           <h4 className="text-xs font-song font-semibold text-ink-700 mb-2">线料配方</h4>
                           {compareDiff.formula.length === 0 ? (
@@ -545,6 +566,29 @@ export default function ArchivePage() {
                 </>
               )}
             </div>
+
+            {workRestoreRecords.length > 0 && (
+              <div className="qxd-panel p-5 huiwen-border">
+                <div className="qxd-title-bar mb-3">
+                  <div className="title-icon"><History className="w-4 h-4" /></div>
+                  <h2>恢复操作记录</h2>
+                  <span className="ml-auto text-xs text-ink-400">{workRestoreRecords.length} 次恢复</span>
+                </div>
+                <div className="space-y-2 max-h-[200px] overflow-y-auto scrollbar-thin pr-1">
+                  {workRestoreRecords.map((rr: RestoreRecord) => (
+                    <div key={rr.id} className="p-3 rounded-lg border border-blue-100 bg-blue-50/40">
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="text-xs font-song font-semibold text-blue-700">
+                          恢复自 <span className="text-ink-600">{rr.fromVersionName}</span>
+                        </span>
+                        <span className="text-[10px] text-ink-400">{formatDateTime(rr.restoredAt)}</span>
+                      </div>
+                      <p className="text-[10px] text-ink-500 pl-2 border-l-2 border-blue-200">{rr.summary}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         )}
       </section>
