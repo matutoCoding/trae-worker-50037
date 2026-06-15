@@ -55,11 +55,19 @@ export function createDefaultFormula(): ThreadFormula {
   return base;
 }
 
-export function createDefaultWinding(zones: PatternZone[], diameter: number): WindingConfig {
-  const dens = calcZoneDensity(zones);
-  const stacking = zones.flatMap((z, i) => Array.from({ length: Math.max(1, z.layerOrder) }, (_, k) => ({
-    zoneId: z.id, layerIndex: k + 1, height: diameter * (0.85 + k * 0.1), threadLength: Math.round(z.area * (0.2 + k * 0.08)),
-  })));
+export function createDefaultWinding(zones: PatternZone[], pathLayers: PathLayer[], diameter: number): WindingConfig {
+  const dens = calcZoneDensity(zones, pathLayers);
+  const stacking = zones.flatMap((z, i) => {
+    const zonePathLayers = pathLayers.filter(p => p.zoneId === z.id).sort((a, b) => a.order - b.order);
+    if (zonePathLayers.length === 0) {
+      return Array.from({ length: Math.max(1, z.layerOrder) }, (_, k) => ({
+        zoneId: z.id, layerIndex: k + 1, height: diameter * (0.85 + k * 0.1), threadLength: Math.round(z.area * (0.2 + k * 0.08)),
+      }));
+    }
+    return zonePathLayers.map((pl, k) => ({
+      zoneId: z.id, layerIndex: pl.order, height: diameter * (0.85 + k * 0.1), threadLength: Math.round(z.area * (0.15 + pl.threadCount * 0.02)),
+    }));
+  });
   const totalHeight = stacking.reduce((s, l) => Math.max(s, l.height * l.layerIndex), 0);
   const baseCfg = {
     id: 'win_' + uid(),
@@ -78,7 +86,7 @@ export function createDefaultWinding(zones: PatternZone[], diameter: number): Wi
 
 const basePattern = createDefaultPattern();
 const baseFormula = createDefaultFormula();
-const baseWinding = createDefaultWinding(basePattern.zones, baseFormula.threadDiameter);
+const baseWinding = createDefaultWinding(basePattern.zones, basePattern.pathLayers, baseFormula.threadDiameter);
 
 function clonePatternWithNewId(p: PatternScheme, newId: string): PatternScheme {
   const suffix = uid().slice(0, 4);
@@ -187,7 +195,7 @@ function createWorkSnapshot(patternName: string, formulaOverrides: Partial<Threa
   formula.hardnessIndex = calcHardnessIndex(formula);
   formula.plasticityIndex = calcPlasticityIndex(formula);
   formula.warnings = analyzeWarnings(formula);
-  const winding = createDefaultWinding(pattern.zones, formula.threadDiameter);
+  const winding = createDefaultWinding(pattern.zones, pattern.pathLayers, formula.threadDiameter);
   winding.id = 'w_' + uid().slice(0, 6);
   return { pattern, formula, winding };
 }

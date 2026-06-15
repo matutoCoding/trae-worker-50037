@@ -319,17 +319,21 @@ export function calcFragilityRisk(cfg: WindingConfig, elapsedHours: number): { r
   return { risk, index: Math.round(index * 100) / 100 };
 }
 
-export function calcZoneDensity(zones: PatternZone[]): Record<string, { density: number; level: string; loopCount: number; spacing: number }> {
+export function calcZoneDensity(zones: PatternZone[], pathLayers: PathLayer[]): Record<string, { density: number; level: string; loopCount: number; spacing: number }> {
   const result: Record<string, any> = {};
   zones.forEach(z => {
-    let density = 0;
+    const zonePathLayers = pathLayers.filter(p => p.zoneId === z.id);
+    const totalThreadCount = zonePathLayers.reduce((s, p) => s + p.threadCount, 0);
+    const layerCount = zonePathLayers.length || 1;
+    let baseDensity = 0;
     switch (z.priority) {
-      case 'primary': density = 15 + z.layerOrder * 2.4; break;
-      case 'secondary': density = 9 + z.layerOrder * 1.8; break;
-      case 'background': density = 4 + z.layerOrder * 1.2; break;
+      case 'primary': baseDensity = 12 + z.layerOrder * 2.0; break;
+      case 'secondary': baseDensity = 7 + z.layerOrder * 1.5; break;
+      case 'background': baseDensity = 3 + z.layerOrder * 1.0; break;
     }
+    const density = baseDensity + (totalThreadCount / layerCount) * 0.8;
     const level = density < 5 ? 'sparse' : density < 12 ? 'medium' : density < 20 ? 'dense' : 'very-dense';
-    const loopCount = Math.round((density * z.area) / 100);
+    const loopCount = totalThreadCount || Math.round((density * z.area) / 100);
     const spacing = Math.max(0.3, 3.2 - density * 0.12);
     result[z.id] = { density: Math.round(density * 10) / 10, level, loopCount, spacing: Math.round(spacing * 100) / 100 };
   });

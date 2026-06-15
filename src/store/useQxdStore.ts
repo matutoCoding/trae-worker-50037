@@ -130,7 +130,7 @@ function compareVersions(v1: Version, v2: Version): VersionDiff {
 
 const initPattern = createDefaultPattern();
 const initFormula = createDefaultFormula();
-const initWinding = createDefaultWinding(initPattern.zones, initFormula.threadDiameter);
+const initWinding = createDefaultWinding(initPattern.zones, initPattern.pathLayers, initFormula.threadDiameter);
 
 const seedVersions: Version[] = [];
 
@@ -205,12 +205,22 @@ export const useQxdStore = create<AppState & {
 
   recomputeWinding: () => {
     const { winding, pattern, formula } = get();
-    const dens = calcZoneDensity(pattern.zones);
-    const stacking = pattern.zones.flatMap(z => Array.from({ length: Math.max(1, z.layerOrder) }, (_, k) => ({
-      zoneId: z.id, layerIndex: k + 1,
-      height: formula.threadDiameter * (0.85 + k * 0.1),
-      threadLength: Math.round(z.area * (0.2 + k * 0.08)),
-    })));
+    const dens = calcZoneDensity(pattern.zones, pattern.pathLayers);
+    const stacking = pattern.zones.flatMap(z => {
+      const zonePathLayers = pattern.pathLayers.filter(p => p.zoneId === z.id).sort((a, b) => a.order - b.order);
+      if (zonePathLayers.length === 0) {
+        return Array.from({ length: Math.max(1, z.layerOrder) }, (_, k) => ({
+          zoneId: z.id, layerIndex: k + 1,
+          height: formula.threadDiameter * (0.85 + k * 0.1),
+          threadLength: Math.round(z.area * (0.2 + k * 0.08)),
+        }));
+      }
+      return zonePathLayers.map((pl, k) => ({
+        zoneId: z.id, layerIndex: pl.order,
+        height: formula.threadDiameter * (0.85 + k * 0.1),
+        threadLength: Math.round(z.area * (0.15 + pl.threadCount * 0.02)),
+      }));
+    });
     const totalHeight = stacking.reduce((s, l) => Math.max(s, l.height * l.layerIndex), 0);
     const densityMap = pattern.zones.map(z => ({ zoneId: z.id, ...(dens[z.id] as any) }));
     const dryingHours = calcDryingHours({ ...winding, stackingLayers: stacking }, formula.threadDiameter);
@@ -273,13 +283,14 @@ export const useQxdStore = create<AppState & {
   updateWork: (wid, patch) => set({ works: get().works.map(w => w.id === wid ? { ...w, ...patch, updatedAt: Date.now() } : w) }),
 
   saveCurrentToWorks: () => {
-    const { pattern, formula, winding, currentWorkId, works } = get();
+    const { pattern, formula, winding, currentWorkId, works, versions } = get();
     const ts = Date.now();
     const patternSnapshot = JSON.parse(JSON.stringify(pattern));
     const formulaSnapshot = JSON.parse(JSON.stringify(formula));
     const windingSnapshot = JSON.parse(JSON.stringify(winding));
-    if (currentWorkId) {
-      set({ works: works.map(w => w.id === currentWorkId ? { ...w, updatedAt: ts, patternSnapshot, formulaSnapshot, windingSnapshot } : w) });
+    let workId = currentWorkId;
+    if (workId) {
+      set({ works: works.map(w => w.id === workId ? { ...w, updatedAt: ts, patternSnapshot, formulaSnapshot, windingSnapshot } : w) });
     } else {
       const newWork: Work = {
         id: 'wk_' + uid(), name: pattern.name,
@@ -289,13 +300,45 @@ export const useQxdStore = create<AppState & {
         patternSnapshot, formulaSnapshot, windingSnapshot,
         alerts: [], steps: [], notes: '',
       };
-      set({ works: [newWork, ...works], currentWorkId: newWork.id });
+      workId = newWork.id;
+      set({ works: [newWork, ...works], currentWorkId: workId, selectedWorkId: workId });
     }
+    const workVersions = versions.filter(v => v.workId === workId);
+    const newVersion: Version = {
+      id: 'v_' + uid(),
+      workId,
+      versionNumber: workVersions.length + 1,
+      name: `v${workVersions.length + 1} · ${pattern.name}`,
+      createdAt: ts,
+      author: '我',
+      note: '保存方案快照',
+      patternSnapshot,
+      formulaSnapshot,
+      windingSnapshot,
+    };
+    set({ versions: [...versions, newVersion] });
   },
 
   toggleTemplateDetail: (tid) => set({ selectedTemplateId: tid, showTemplateDetail: !!tid }),
 
-  selectWork: (wid) => set({ selectedWorkId: wid }),
+  selectWork: (wid) => {
+    const work = get().works.find(w => w.id === wid);
+    if (work) {
+      const pattern = JSON.parse(JSON.stringify(work.patternSnapshot));
+      const formula = JSON.parse(JSON.stringify(work.formulaSnapshot));
+      const winding = JSON.parse(JSON.stringify(work.windingSnapshot));
+      set({
+        selectedWorkId: wid,
+        currentWorkId: wid,
+        pattern: { ...pattern, id: get().pattern.id },
+        formula: { ...formula, id: get().formula.id },
+        winding: { ...winding, id: get().winding.id },
+      });
+      setTimeout(() => get().generateConstructionPlan(), 0);
+    } else {
+      set({ selectedWorkId: wid });
+    }
+  },
 
   processVectorize: async () => {
     const { pattern } = get();
@@ -374,10 +417,16 @@ export const useQxdStore = create<AppState & {
     const pattern = JSON.parse(JSON.stringify(version.patternSnapshot));
     const formula = JSON.parse(JSON.stringify(version.formulaSnapshot));
     const winding = JSON.parse(JSON.stringify(version.windingSnapshot));
+    const works = get().works.map(w =>
+      w.id === version.workId ? { ...w, patternSnapshot: pattern, formulaSnapshot: formula, windingSnapshot: winding, updatedAt: Date.now() } : w
+    );
     set({
       pattern: { ...pattern, id: get().pattern.id },
       formula: { ...formula, id: get().formula.id },
       winding: { ...winding, id: get().winding.id },
+      currentWorkId: version.workId,
+      selectedWorkId: version.workId,
+      works,
     });
     setTimeout(() => get().generateConstructionPlan(), 0);
   },
@@ -470,9 +519,37 @@ export const useQxdStore = create<AppState & {
   },
 
   saveConstructionPlanToWork: () => {
-    const { constructionPlan, currentWorkId, works } = get();
-    if (!constructionPlan || !currentWorkId) return;
-    const work = works.find(w => w.id === currentWorkId);
+    const { constructionPlan, currentWorkId, works, pattern } = get();
+    if (!constructionPlan) return;
+    let workId = currentWorkId;
+    if (!workId) {
+      const ts = Date.now();
+      const patternSnapshot = JSON.parse(JSON.stringify(get().pattern));
+      const formulaSnapshot = JSON.parse(JSON.stringify(get().formula));
+      const windingSnapshot = JSON.parse(JSON.stringify(get().winding));
+      const newWork: Work = {
+        id: 'wk_' + uid(), name: pattern.name,
+        thumbnail: 'linear-gradient(135deg,#BE3A2B,#8B2323 60%,#2C1810)',
+        status: 'draft', author: '我', createdAt: ts, updatedAt: ts,
+        patternId: pattern.id, formulaId: get().formula.id, windingId: get().winding.id,
+        patternSnapshot, formulaSnapshot, windingSnapshot,
+        alerts: [], steps: [], notes: '',
+      };
+      workId = newWork.id;
+      const workVersions = get().versions.filter(v => v.workId === workId);
+      const newVersion: Version = {
+        id: 'v_' + uid(), workId, versionNumber: workVersions.length + 1,
+        name: `v${workVersions.length + 1} · ${pattern.name}`, createdAt: ts, author: '我',
+        note: '保存施工清单时自动创建', patternSnapshot, formulaSnapshot, windingSnapshot,
+      };
+      set({
+        works: [newWork, ...works],
+        versions: [...get().versions, newVersion],
+        currentWorkId: workId, selectedWorkId: workId,
+      });
+    }
+    const currentWorks = get().works;
+    const work = currentWorks.find(w => w.id === workId);
     if (!work) return;
     const steps = constructionPlan.items.map((item, i) => ({
       id: 'ps_' + uid(),
@@ -483,7 +560,8 @@ export const useQxdStore = create<AppState & {
       status: item.status,
     }));
     set({
-      works: works.map(w => w.id === currentWorkId ? { ...w, steps, updatedAt: Date.now() } : w),
+      works: currentWorks.map(w => w.id === workId ? { ...w, steps, updatedAt: Date.now() } : w),
+      selectedWorkId: workId,
     });
   },
 }));
