@@ -4,10 +4,11 @@ import { useQxdStore } from '../../store/useQxdStore';
 import { clsx } from 'clsx';
 
 export default function PatternPage() {
-  const { pattern, updatePattern, addZone, updateZone, removeZone, recomputeWinding, setPage, formula, saveCurrentToWorks } = useQxdStore();
+  const { pattern, updatePattern, addZone, updateZone, removeZone, recomputeWinding, setPage, formula, saveCurrentToWorks, processVectorize, processAutoPartition } = useQxdStore();
   const [tool, setTool] = useState<'select' | 'zone' | 'path'>('select');
   const [activeZoneId, setActiveZoneId] = useState(pattern.zones[0]?.id ?? null);
   const [showGrid, setShowGrid] = useState(true);
+  const [processing, setProcessing] = useState<'vectorize' | 'partition' | null>(null);
 
   const layerCounts = useMemo(() => {
     return pattern.pathLayers.reduce((acc: Record<string, number>, p) => {
@@ -43,11 +44,23 @@ export default function PatternPage() {
             </div>
           </label>
           <div className="mt-3 flex flex-wrap gap-2">
-            <button className="flex-1 min-w-[90px] text-xs py-2 rounded-lg border border-gold-200 bg-rice-50 text-ink-600 hover:bg-gold-50 hover:text-cinnabar-700 flex items-center justify-center gap-1">
-              <Sparkles className="w-3.5 h-3.5" /> 矢量化处理
+            <button onClick={async () => {
+              if (!pattern.imageData) { alert('请先上传纹样图片'); return; }
+              setProcessing('vectorize');
+              try { await processVectorize(); } finally { setProcessing(null); }
+            }} disabled={processing !== null}
+              className="flex-1 min-w-[90px] text-xs py-2 rounded-lg border border-gold-200 bg-rice-50 text-ink-600 hover:bg-gold-50 hover:text-cinnabar-700 flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed">
+              <Sparkles className={clsx('w-3.5 h-3.5', processing === 'vectorize' && 'animate-spin')} />
+              {processing === 'vectorize' ? '处理中...' : '矢量化处理'}
             </button>
-            <button className="flex-1 min-w-[90px] text-xs py-2 rounded-lg border border-gold-200 bg-rice-50 text-ink-600 hover:bg-gold-50 hover:text-cinnabar-700 flex items-center justify-center gap-1">
-              <Grid3X3 className="w-3.5 h-3.5" /> 智能分区
+            <button onClick={async () => {
+              if (!pattern.imageData) { alert('请先上传纹样图片'); return; }
+              setProcessing('partition');
+              try { await processAutoPartition(); } finally { setProcessing(null); }
+            }} disabled={processing !== null}
+              className="flex-1 min-w-[90px] text-xs py-2 rounded-lg border border-gold-200 bg-rice-50 text-ink-600 hover:bg-gold-50 hover:text-cinnabar-700 flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed">
+              <Grid3X3 className={clsx('w-3.5 h-3.5', processing === 'partition' && 'animate-spin')} />
+              {processing === 'partition' ? '分析中...' : '智能分区'}
             </button>
           </div>
         </div>

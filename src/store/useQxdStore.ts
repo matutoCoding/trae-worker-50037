@@ -3,7 +3,7 @@ import type { AppState, PageKey, PatternScheme, ThreadFormula, WindingConfig, Wo
 import {
   createDefaultPattern, createDefaultFormula, createDefaultWinding, seedWorks, seedTemplates, seedCategories,
 } from '../data/mockData';
-import { calcHardnessIndex, calcPlasticityIndex, analyzeWarnings, calcDryingHours, calcZoneDensity } from '../utils/calculations';
+import { calcHardnessIndex, calcPlasticityIndex, analyzeWarnings, calcDryingHours, calcZoneDensity, vectorizeImage, autoPartition } from '../utils/calculations';
 import { uid } from '../utils/calculations';
 
 const initPattern = createDefaultPattern();
@@ -26,6 +26,8 @@ export const useQxdStore = create<AppState & {
   saveCurrentToWorks: () => void;
   toggleTemplateDetail: (tid: string | null) => void;
   selectWork: (wid: string | null) => void;
+  processVectorize: () => Promise<void>;
+  processAutoPartition: () => Promise<void>;
 }>()((set, get) => ({
   currentPage: 'dashboard',
   currentWorkId: null,
@@ -113,6 +115,9 @@ export const useQxdStore = create<AppState & {
       thumbnail: tpl.coverImage, status: 'draft', author: '我',
       createdAt: Date.now(), updatedAt: Date.now(),
       patternId: pattern.id, formulaId: formula.id, windingId: winding.id,
+      patternSnapshot: JSON.parse(JSON.stringify(pattern)),
+      formulaSnapshot: JSON.parse(JSON.stringify(formula)),
+      windingSnapshot: JSON.parse(JSON.stringify(winding)),
       alerts: [], steps: [], notes: `基于模板「${tpl.name}」创建，可按需求微调参数。`,
     };
     set({
@@ -127,14 +132,18 @@ export const useQxdStore = create<AppState & {
   saveCurrentToWorks: () => {
     const { pattern, formula, winding, currentWorkId, works } = get();
     const ts = Date.now();
+    const patternSnapshot = JSON.parse(JSON.stringify(pattern));
+    const formulaSnapshot = JSON.parse(JSON.stringify(formula));
+    const windingSnapshot = JSON.parse(JSON.stringify(winding));
     if (currentWorkId) {
-      set({ works: works.map(w => w.id === currentWorkId ? { ...w, updatedAt: ts } : w) });
+      set({ works: works.map(w => w.id === currentWorkId ? { ...w, updatedAt: ts, patternSnapshot, formulaSnapshot, windingSnapshot } : w) });
     } else {
       const newWork: Work = {
         id: 'wk_' + uid(), name: pattern.name,
         thumbnail: 'linear-gradient(135deg,#BE3A2B,#8B2323 60%,#2C1810)',
         status: 'draft', author: '我', createdAt: ts, updatedAt: ts,
         patternId: pattern.id, formulaId: formula.id, windingId: winding.id,
+        patternSnapshot, formulaSnapshot, windingSnapshot,
         alerts: [], steps: [], notes: '',
       };
       set({ works: [newWork, ...works], currentWorkId: newWork.id });
@@ -144,4 +153,38 @@ export const useQxdStore = create<AppState & {
   toggleTemplateDetail: (tid) => set({ selectedTemplateId: tid, showTemplateDetail: !!tid }),
 
   selectWork: (wid) => set({ selectedWorkId: wid }),
+
+  processVectorize: async () => {
+    const { pattern } = get();
+    if (!pattern.imageData) {
+      alert('请先上传纹样图片');
+      return;
+    }
+    const result = await vectorizeImage(pattern.imageData, pattern);
+    set({
+      pattern: {
+        ...pattern,
+        zones: result.zones,
+        pathLayers: result.pathLayers,
+      },
+    });
+    setTimeout(() => get().recomputeWinding(), 0);
+  },
+
+  processAutoPartition: async () => {
+    const { pattern } = get();
+    if (!pattern.imageData) {
+      alert('请先上传纹样图片');
+      return;
+    }
+    const result = await autoPartition(pattern.imageData, pattern);
+    set({
+      pattern: {
+        ...pattern,
+        zones: result.zones,
+        pathLayers: result.pathLayers,
+      },
+    });
+    setTimeout(() => get().recomputeWinding(), 0);
+  },
 }));

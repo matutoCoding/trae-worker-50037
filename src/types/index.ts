@@ -105,6 +105,9 @@ export interface Work {
   patternId: string;
   formulaId: string;
   windingId: string;
+  patternSnapshot: PatternScheme;
+  formulaSnapshot: ThreadFormula;
+  windingSnapshot: WindingConfig;
   alerts: RiskAlert[];
   steps: ProcessStep[];
   notes: string;

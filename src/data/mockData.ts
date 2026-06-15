@@ -18,12 +18,23 @@ export const defaultPathLayers: PathLayer[] = [
 ];
 
 export function createDefaultPattern(): PatternScheme {
+  const suffix = uid().slice(0, 4);
+  const zones = defaultZones.map(z => ({ ...z, id: z.id + '_' + suffix }));
+  const idMap = defaultZones.reduce((acc, z, i) => {
+    acc[z.id] = zones[i].id;
+    return acc;
+  }, {} as Record<string, string>);
+  const pathLayers = defaultPathLayers.map(p => ({
+    ...p,
+    id: p.id + '_' + suffix,
+    zoneId: idMap[p.zoneId] || p.zoneId,
+  }));
   return {
     id: 'pat_' + uid(),
     name: '团龙祥云纹（示例）',
     imageData: null,
-    zones: defaultZones.map(z => ({ ...z, id: z.id + '_' + uid().slice(0,4) })),
-    pathLayers: defaultPathLayers.map(p => ({ ...p, id: p.id + '_' + uid().slice(0,4) })),
+    zones,
+    pathLayers,
     createdAt: now,
   };
 }
@@ -69,6 +80,21 @@ const basePattern = createDefaultPattern();
 const baseFormula = createDefaultFormula();
 const baseWinding = createDefaultWinding(basePattern.zones, baseFormula.threadDiameter);
 
+function clonePatternWithNewId(p: PatternScheme, newId: string): PatternScheme {
+  const suffix = uid().slice(0, 4);
+  const zones = p.zones.map(z => ({ ...z, id: z.id.split('_')[0] + '_' + suffix }));
+  const idMap = p.zones.reduce((acc, z, i) => {
+    acc[z.id] = zones[i].id;
+    return acc;
+  }, {} as Record<string, string>);
+  const pathLayers = p.pathLayers.map(pl => ({
+    ...pl,
+    id: pl.id.split('_')[0] + '_' + suffix,
+    zoneId: idMap[pl.zoneId] || pl.zoneId,
+  }));
+  return { ...p, id: newId, zones, pathLayers };
+}
+
 export const seedCategories: TemplateCategory[] = [
   { id: 'dragon', name: '龙凤呈祥', icon: '🐉', count: 12 },
   { id: 'flora', name: '瑞花珍禽', icon: '🌸', count: 18 },
@@ -93,7 +119,7 @@ export const seedTemplates: Template[] = [
     description: '经典九龙盘绕纹样，中央火珠主纹，九龙循环盘绕，层次丰富，气势恢宏。适合30cm以上大盘制作。',
     coverImage: sampleCovers[0], tags: ['皇家制式','龙纹','大盘','高难度'],
     complexity: 5, version: 2, versionDate: now - 86400000 * 30, author: '国家级传承人·陈大师',
-    patternScheme: { ...basePattern, name: '九龙戏珠纹', id: 'p_d01' },
+    patternScheme: clonePatternWithNewId(basePattern, 'p_d01'),
     formula: { ...baseFormula, id: 'f_d01', goldPowderRatio: 8, brickPowderRatio: 30, lacquerRatio: 40, threadDiameter: 0.8, hardnessIndex: 68, plasticityIndex: 58, warnings: [] },
     winding: { ...baseWinding, id: 'w_d01', totalHeight: 14.6 },
     usageCount: 127,
@@ -103,7 +129,7 @@ export const seedTemplates: Template[] = [
     description: '缠枝牡丹纹连绵不断，寓意富贵长久。适合圆形漆盒顶面装饰，线径适中，适合进阶工艺师。',
     coverImage: sampleCovers[1], tags: ['缠枝纹','牡丹','捧盒','经典'],
     complexity: 3, version: 1, versionDate: now - 86400000 * 60, author: '传承人·林师傅',
-    patternScheme: { ...basePattern, name: '缠枝牡丹纹', id: 'p_f04' },
+    patternScheme: clonePatternWithNewId(basePattern, 'p_f04'),
     formula: { ...baseFormula, id: 'f_f04', threadDiameter: 1.0, hardnessIndex: 72, plasticityIndex: 62, warnings: [] },
     winding: { ...baseWinding, id: 'w_f04', totalHeight: 9.8 },
     usageCount: 342,
@@ -113,7 +139,7 @@ export const seedTemplates: Template[] = [
     description: '四合如意云纹，寓意四方平安如意。线条流畅柔和，适合入门练习，密度适中易上手。',
     coverImage: sampleCovers[2], tags: ['如意纹','云纹','入门','插屏'],
     complexity: 2, version: 3, versionDate: now - 86400000 * 14, author: '工艺师·王小姐',
-    patternScheme: { ...basePattern, name: '四合如意云纹', id: 'p_c02' },
+    patternScheme: clonePatternWithNewId(basePattern, 'p_c02'),
     formula: { ...baseFormula, id: 'f_c02', threadDiameter: 1.2, tungOilRatio: 20, lacquerRatio: 44, hardnessIndex: 74, plasticityIndex: 65, warnings: [] },
     winding: { ...baseWinding, id: 'w_c02', totalHeight: 7.2 },
     usageCount: 518,
@@ -123,7 +149,7 @@ export const seedTemplates: Template[] = [
     description: '万字不到头几何连续纹，寓意吉祥绵延无尽。规整对称，对搓线均匀度要求较高。',
     coverImage: sampleCovers[3], tags: ['万字纹','几何','长盘','中难度'],
     complexity: 4, version: 1, versionDate: now - 86400000 * 90, author: '老艺人·张师傅',
-    patternScheme: { ...basePattern, name: '万字不到头纹', id: 'p_g08' },
+    patternScheme: clonePatternWithNewId(basePattern, 'p_g08'),
     formula: { ...baseFormula, id: 'f_g08', threadDiameter: 0.7, hardnessIndex: 80, plasticityIndex: 55, warnings: [] },
     winding: { ...baseWinding, id: 'w_g08', totalHeight: 5.4 },
     usageCount: 203,
@@ -133,7 +159,7 @@ export const seedTemplates: Template[] = [
     description: '仰莲瓣+须弥座组合边饰，适合器身下部装饰。层次分明，贴金后效果华贵。',
     coverImage: sampleCovers[4], tags: ['莲瓣纹','须弥座','边饰','瓶身'],
     complexity: 3, version: 2, versionDate: now - 86400000 * 45, author: '传承人·李师傅',
-    patternScheme: { ...basePattern, name: '仰莲须弥座纹', id: 'p_b03' },
+    patternScheme: clonePatternWithNewId(basePattern, 'p_b03'),
     formula: { ...baseFormula, id: 'f_b03', goldPowderRatio: 10, brickPowderRatio: 28, lacquerRatio: 42, threadDiameter: 0.9, hardnessIndex: 70, plasticityIndex: 60, warnings: [] },
     winding: { ...baseWinding, id: 'w_b03', totalHeight: 11.2 },
     usageCount: 176,
@@ -143,19 +169,42 @@ export const seedTemplates: Template[] = [
     description: '观音踏莲造像挂屏，衣纹流畅层次多，需细腻手法表现飘带与莲瓣。人物开面精细。',
     coverImage: sampleCovers[5], tags: ['观音','人物','挂屏','大师级'],
     complexity: 5, version: 1, versionDate: now - 86400000 * 120, author: '国家级传承人·陈大师',
-    patternScheme: { ...basePattern, name: '观音踏莲纹', id: 'p_fg01' },
+    patternScheme: clonePatternWithNewId(basePattern, 'p_fg01'),
     formula: { ...baseFormula, id: 'f_fg01', threadDiameter: 0.5, hardnessIndex: 78, plasticityIndex: 56, warnings: [] },
     winding: { ...baseWinding, id: 'w_fg01', totalHeight: 6.8 },
     usageCount: 64,
   },
 ];
 
+function createWorkSnapshot(patternName: string, formulaOverrides: Partial<ThreadFormula> = {}) {
+  const pattern = clonePatternWithNewId(basePattern, 'p_' + uid().slice(0, 6));
+  pattern.name = patternName;
+  const formula = {
+    ...createDefaultFormula(),
+    id: 'f_' + uid().slice(0, 6),
+    ...formulaOverrides,
+  } as ThreadFormula;
+  formula.hardnessIndex = calcHardnessIndex(formula);
+  formula.plasticityIndex = calcPlasticityIndex(formula);
+  formula.warnings = analyzeWarnings(formula);
+  const winding = createDefaultWinding(pattern.zones, formula.threadDiameter);
+  winding.id = 'w_' + uid().slice(0, 6);
+  return { pattern, formula, winding };
+}
+
+const snap1 = createWorkSnapshot('云鹤寿字纹', { threadDiameter: 0.8, goldPowderRatio: 8 });
+const snap2 = createWorkSnapshot('缠枝莲纹', { threadDiameter: 1.0, lacquerRatio: 40, brickPowderRatio: 34 });
+const snap3 = createWorkSnapshot('饕餮纹', { threadDiameter: 1.2, lacquerRatio: 45, tungOilRatio: 15 });
+const snap4 = createWorkSnapshot('描金山水纹', { threadDiameter: 0.7, goldPowderRatio: 12 });
+const snap5 = createWorkSnapshot('百福图纹', { threadDiameter: 0.9, brickPowderRatio: 30, lacquerRatio: 44 });
+
 export const seedWorks: Work[] = [
   {
     id: 'wk_001', name: '云鹤寿字盘（创作中）',
     thumbnail: sampleCovers[2], status: 'in-progress', author: '我',
     createdAt: now - 86400000 * 5, updatedAt: now - 3600000 * 3,
-    patternId: 'p_w01', formulaId: 'f_w01', windingId: 'w_w01',
+    patternId: snap1.pattern.id, formulaId: snap1.formula.id, windingId: snap1.winding.id,
+    patternSnapshot: snap1.pattern, formulaSnapshot: snap1.formula, windingSnapshot: snap1.winding,
     alerts: [
       { id: 'a1', type: 'humidity', severity: 'medium', message: '当前工作间湿度 38% 偏低，线料失水速度加快，建议启用加湿器。', detectedAt: now - 3600000 * 2, resolved: false },
     ],
@@ -172,7 +221,8 @@ export const seedWorks: Work[] = [
     id: 'wk_002', name: '缠枝莲茶叶罐',
     thumbnail: sampleCovers[1], status: 'completed', author: '我',
     createdAt: now - 86400000 * 22, updatedAt: now - 86400000 * 8,
-    patternId: 'p_w02', formulaId: 'f_w02', windingId: 'w_w02',
+    patternId: snap2.pattern.id, formulaId: snap2.formula.id, windingId: snap2.winding.id,
+    patternSnapshot: snap2.pattern, formulaSnapshot: snap2.formula, windingSnapshot: snap2.winding,
     alerts: [
       { id: 'a2', type: 'drying', severity: 'low', message: '干燥时间延长 2 小时，属正常范围。', detectedAt: now - 86400000 * 10, resolved: true },
     ],
@@ -183,7 +233,8 @@ export const seedWorks: Work[] = [
     id: 'wk_003', name: '饕餮纹方鼎·样稿',
     thumbnail: sampleCovers[3], status: 'draft', author: '我',
     createdAt: now - 86400000 * 2, updatedAt: now - 86400000,
-    patternId: 'p_w03', formulaId: 'f_w03', windingId: 'w_w03',
+    patternId: snap3.pattern.id, formulaId: snap3.formula.id, windingId: snap3.winding.id,
+    patternSnapshot: snap3.pattern, formulaSnapshot: snap3.formula, windingSnapshot: snap3.winding,
     alerts: [],
     steps: [{ id: 's0', stepOrder: 1, name: '前期方案', description: '查阅青铜纹样资料', durationHours: 6, status: 'in-progress' }],
     notes: '参考商代青铜饕餮纹，计划 4 条夔龙+中央饕餮，尚在构图阶段。',
@@ -192,7 +243,8 @@ export const seedWorks: Work[] = [
     id: 'wk_004', name: '描金山水折沿盘',
     thumbnail: sampleCovers[5], status: 'archived', author: '我',
     createdAt: now - 86400000 * 180, updatedAt: now - 86400000 * 100,
-    patternId: 'p_w04', formulaId: 'f_w04', windingId: 'w_w04',
+    patternId: snap4.pattern.id, formulaId: snap4.formula.id, windingId: snap4.winding.id,
+    patternSnapshot: snap4.pattern, formulaSnapshot: snap4.formula, windingSnapshot: snap4.winding,
     alerts: [
       { id: 'a3', type: 'crack', severity: 'high', message: '第 3 层盘绕时发现裂纹，返工修复，已记录方案偏差。', detectedAt: now - 86400000 * 120, resolved: true },
     ],
@@ -203,7 +255,8 @@ export const seedWorks: Work[] = [
     id: 'wk_005', name: '百福图挂屏',
     thumbnail: sampleCovers[0], status: 'in-progress', author: '我',
     createdAt: now - 86400000 * 12, updatedAt: now - 86400000,
-    patternId: 'p_w05', formulaId: 'f_w05', windingId: 'w_w05',
+    patternId: snap5.pattern.id, formulaId: snap5.formula.id, windingId: snap5.winding.id,
+    patternSnapshot: snap5.pattern, formulaSnapshot: snap5.formula, windingSnapshot: snap5.winding,
     alerts: [
       { id: 'a4', type: 'fragile', severity: 'high', message: '线料已干燥 12 小时（预计 8 小时），存在变脆断裂高风险，请尽快贴金罩明。', detectedAt: now - 1800000, resolved: false },
     ],

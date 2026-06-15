@@ -6,12 +6,12 @@ import { clsx } from 'clsx';
 function HardnessGauge({ value }: { value: number }) {
   const clamped = Math.max(20, Math.min(110, value));
   const angle = ((clamped - 20) / 90) * 180;
-  const zone = value < 45 ? 'hard' : value < 55 ? 'warn-low' : value <= 85 ? 'safe' : value <= 95 ? 'warn-high' : 'soft';
+  const zone = value < 45 ? 'soft' : value < 55 ? 'warn-low' : value <= 75 ? 'safe' : value <= 85 ? 'warn-high' : 'hard';
   const colors: Record<string, string> = {
-    'hard': '#EE2E2E', 'warn-low': '#FF9F43', 'safe': '#2ECC71', 'warn-high': '#FF9F43', 'soft': '#EE2E2E'
+    'soft': '#EE2E2E', 'warn-low': '#FF9F43', 'safe': '#2ECC71', 'warn-high': '#FF9F43', 'hard': '#EE2E2E'
   };
   const labels: Record<string, string> = {
-    'hard': '过硬·易断', 'warn-low': '偏硬', 'safe': '安全区间', 'warn-high': '偏软', 'soft': '过软·坍塌'
+    'soft': '过软·坍塌', 'warn-low': '偏软', 'safe': '安全区间', 'warn-high': '偏硬', 'hard': '过硬·易断'
   };
   return (
     <div className="relative pt-3">
@@ -20,7 +20,8 @@ function HardnessGauge({ value }: { value: number }) {
           <linearGradient id="gauge-grad" x1="0" y1="0" x2="1" y2="0">
             <stop offset="0%" stopColor="#EE2E2E" />
             <stop offset="28%" stopColor="#FF9F43" />
-            <stop offset="50%" stopColor="#2ECC71" />
+            <stop offset="39%" stopColor="#2ECC71" />
+            <stop offset="61%" stopColor="#2ECC71" />
             <stop offset="72%" stopColor="#FF9F43" />
             <stop offset="100%" stopColor="#EE2E2E" />
           </linearGradient>
@@ -28,7 +29,7 @@ function HardnessGauge({ value }: { value: number }) {
         <path d="M20 120 A 100 100 0 0 1 220 120" fill="none" stroke="#EDE9E3" strokeWidth="16" strokeLinecap="round" />
         <path d="M20 120 A 100 100 0 0 1 220 120" fill="none" stroke="url(#gauge-grad)" strokeWidth="10" strokeLinecap="round" strokeDasharray="314" strokeDashoffset="0" />
         <g>
-          {[20, 45, 55, 85, 95, 110].map((v, i) => {
+          {[20, 45, 55, 75, 85, 110].map((v, i) => {
             const a = ((v - 20) / 90) * Math.PI;
             const x1 = 120 - 92 * Math.cos(a), y1 = 120 - 92 * Math.sin(a);
             const x2 = 120 - 104 * Math.cos(a), y2 = 120 - 104 * Math.sin(a);
@@ -57,7 +58,7 @@ function HardnessGauge({ value }: { value: number }) {
         <div className="font-song font-bold text-3xl mt-1 text-ink-800" style={{ color: colors[zone] }}>
           {value.toFixed(1)}
         </div>
-        <div className="text-[11px] text-ink-400 mt-0.5">硬度指数 · 安全 55~85</div>
+        <div className="text-[11px] text-ink-400 mt-0.5">硬度指数 · 安全 55~75</div>
       </div>
     </div>
   );

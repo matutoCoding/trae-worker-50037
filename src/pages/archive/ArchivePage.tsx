@@ -13,11 +13,14 @@ const statusMap: Record<Work['status'], { label: string; dot: string; cls: strin
 };
 
 export default function ArchivePage() {
-  const { works, selectedWorkId, selectWork, updateWork, setPage, pattern, formula, winding } = useQxdStore();
+  const { works, selectedWorkId, selectWork, updateWork, setPage } = useQxdStore();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Work['status'] | 'all'>('all');
   const [playing, setPlaying] = useState(false);
   const selected = works.find(w => w.id === selectedWorkId);
+  const displayPattern = selected?.patternSnapshot;
+  const displayFormula = selected?.formulaSnapshot;
+  const displayWinding = selected?.windingSnapshot;
 
   const filtered = works.filter(w => (filter === 'all' || w.status === filter) && (w.name.includes(query) || w.notes.includes(query)));
   const progress = (w: Work) => w.steps.length ? Math.round((w.steps.filter(s => s.status === 'done').length / w.steps.length) * 100) : 0;
@@ -187,10 +190,10 @@ export default function ArchivePage() {
                   <h2 className="!text-base">纹样方案</h2>
                 </div>
                 <div className="space-y-1.5 text-xs">
-                  <div className="flex justify-between"><span className="text-ink-400">方案名</span><span className="text-ink-700 font-song font-semibold">{pattern.name}</span></div>
-                  <div className="flex justify-between"><span className="text-ink-400">分区数</span><span className="text-cinnabar-700 font-semibold">{pattern.zones.length}</span></div>
-                  <div className="flex justify-between"><span className="text-ink-400">路径层</span><span className="text-cinnabar-700 font-semibold">{pattern.pathLayers.length}</span></div>
-                  <div className="flex justify-between"><span className="text-ink-400">总面积</span><span className="text-gold-700 font-semibold">{pattern.zones.reduce((s, z) => s + z.area, 0).toLocaleString()} px²</span></div>
+                  <div className="flex justify-between"><span className="text-ink-400">方案名</span><span className="text-ink-700 font-song font-semibold">{displayPattern?.name}</span></div>
+                  <div className="flex justify-between"><span className="text-ink-400">分区数</span><span className="text-cinnabar-700 font-semibold">{displayPattern?.zones.length}</span></div>
+                  <div className="flex justify-between"><span className="text-ink-400">路径层</span><span className="text-cinnabar-700 font-semibold">{displayPattern?.pathLayers.length}</span></div>
+                  <div className="flex justify-between"><span className="text-ink-400">总面积</span><span className="text-gold-700 font-semibold">{displayPattern?.zones.reduce((s, z) => s + z.area, 0).toLocaleString()} px²</span></div>
                 </div>
               </div>
               <div className="qxd-panel p-4 huiwen-border">
@@ -199,10 +202,10 @@ export default function ArchivePage() {
                   <h2 className="!text-base">线料配方</h2>
                 </div>
                 <div className="space-y-1.5 text-xs">
-                  <div className="flex justify-between"><span className="text-ink-400">硬度指数</span><span className={clsx('font-bold', formula.hardnessIndex >= 55 && formula.hardnessIndex <= 85 ? 'text-emerald-600' : 'text-warn-danger')}>{formula.hardnessIndex}</span></div>
-                  <div className="flex justify-between"><span className="text-ink-400">可塑性</span><span className="text-cinnabar-700 font-semibold">{formula.plasticityIndex}</span></div>
-                  <div className="flex justify-between"><span className="text-ink-400">漆/油/砖/金</span><span className="text-ink-700 font-hei">{formula.lacquerRatio}/{formula.tungOilRatio}/{formula.brickPowderRatio}/{formula.goldPowderRatio}</span></div>
-                  <div className="flex justify-between"><span className="text-ink-400">线径</span><span className="text-gold-700 font-semibold">Φ {formula.threadDiameter}mm</span></div>
+                  <div className="flex justify-between"><span className="text-ink-400">硬度指数</span><span className={clsx('font-bold', displayFormula && displayFormula.hardnessIndex >= 55 && displayFormula.hardnessIndex <= 75 ? 'text-emerald-600' : 'text-warn-danger')}>{displayFormula?.hardnessIndex}</span></div>
+                  <div className="flex justify-between"><span className="text-ink-400">可塑性</span><span className="text-cinnabar-700 font-semibold">{displayFormula?.plasticityIndex}</span></div>
+                  <div className="flex justify-between"><span className="text-ink-400">漆/油/砖/金</span><span className="text-ink-700 font-hei">{displayFormula?.lacquerRatio}/{displayFormula?.tungOilRatio}/{displayFormula?.brickPowderRatio}/{displayFormula?.goldPowderRatio}</span></div>
+                  <div className="flex justify-between"><span className="text-ink-400">线径</span><span className="text-gold-700 font-semibold">Φ {displayFormula?.threadDiameter}mm</span></div>
                 </div>
               </div>
               <div className="qxd-panel p-4 huiwen-border">
@@ -211,10 +214,10 @@ export default function ArchivePage() {
                   <h2 className="!text-base">盘绕参数</h2>
                 </div>
                 <div className="space-y-1.5 text-xs">
-                  <div className="flex justify-between"><span className="text-ink-400">堆叠层数</span><span className="text-cinnabar-700 font-semibold">{winding.stackingLayers.length}</span></div>
-                  <div className="flex justify-between"><span className="text-ink-400">总高度</span><span className="text-cinnabar-700 font-semibold">{winding.totalHeight} mm</span></div>
-                  <div className="flex justify-between"><span className="text-ink-400">温湿度</span><span className="text-ink-700 font-hei">{winding.temperature}°C / {winding.humidity}%</span></div>
-                  <div className="flex justify-between"><span className="text-ink-400">预计干燥</span><span className="text-gold-700 font-semibold">{winding.dryingHours} h</span></div>
+                  <div className="flex justify-between"><span className="text-ink-400">堆叠层数</span><span className="text-cinnabar-700 font-semibold">{displayWinding?.stackingLayers.length}</span></div>
+                  <div className="flex justify-between"><span className="text-ink-400">总高度</span><span className="text-cinnabar-700 font-semibold">{displayWinding?.totalHeight} mm</span></div>
+                  <div className="flex justify-between"><span className="text-ink-400">温湿度</span><span className="text-ink-700 font-hei">{displayWinding?.temperature}°C / {displayWinding?.humidity}%</span></div>
+                  <div className="flex justify-between"><span className="text-ink-400">预计干燥</span><span className="text-gold-700 font-semibold">{displayWinding?.dryingHours} h</span></div>
                 </div>
               </div>
             </div>
@@ -240,11 +243,11 @@ export default function ArchivePage() {
                       </linearGradient>
                       <filter id="sGold"><feGaussianBlur stdDeviation="1.5" /><feMerge><feMergeNode /><feMergeNode in="SourceGraphic" /></feMerge></filter>
                     </defs>
-                    {pattern.zones.map(z => (
+                    {displayPattern?.zones.map(z => (
                       <path key={z.id} d={z.pathD} fill={z.color} fillOpacity="0.08" stroke={z.color} strokeWidth="1" strokeDasharray="2 2" opacity="0.7" />
                     ))}
-                    {pattern.pathLayers.map((pl, i) => {
-                      const z = pattern.zones.find(zz => zz.id === pl.zoneId);
+                    {displayPattern?.pathLayers.map((pl, i) => {
+                      const z = displayPattern.zones.find(zz => zz.id === pl.zoneId);
                       const len = 3000;
                       return (
                         <g key={'anim' + pl.id}>
